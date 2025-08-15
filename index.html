@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Meow Mayhem 😼</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#0e0f13; color:#fff; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial; }
+  #ui { position:fixed; inset:0; pointer-events:none; }
+  .topbar { display:flex; gap:16px; align-items:center; padding:10px 12px; font-weight:700; text-shadow:0 2px 6px rgba(0,0,0,.5); }
+  .pill { padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.08); backdrop-filter: blur(4px); }
+  .score { display:flex; gap:8px; align-items:center; }
+  .pchip { padding:4px 8px; border-radius:999px; font-size:14px; font-weight:800; }
+  .p1 { background:#ff9aa2; color:#2a1a1d; }
+  .p2 { background:#9ad1ff; color:#121a24; }
+  .p3 { background:#b5ff9a; color:#0f1a10; }
+  .p4 { background:#ffdf9a; color:#1a160f; }
+  .ctr { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); text-align:center; }
+  .btn { display:inline-block; padding:12px 18px; border-radius:12px; background:#2c2f3a; color:#fff; font-weight:800; letter-spacing:.3px; cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,.35); }
+  .btn:active { transform:translate(-50%,-48%); }
+  .hint { opacity:.8; margin-top:8px; font-size:14px; }
+  canvas { display:block; width:100vw; height:100vh; }
+  .bottom { position:fixed; bottom:10px; left:50%; transform:translateX(-50%); font-size:13px; opacity:.8; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="ui">
+  <div class="topbar">
+    <div class="pill">😼 <strong>Meow Mayhem</strong></div>
+    <div id="scores" class="score"></div>
+    <div class="pill" id="status"></div>
+  </div>
+  <div id="center" class="ctr">
+    <div style="font-size:42px; font-weight:900; margin-bottom:10px;">Meow Mayhem 😼</div>
+    <div style="font-size:18px; opacity:.9; margin-bottom:20px;">Collect 🐟. Bonk friends. Avoid chaos. First to <span id="targetPts">10</span> wins.</div>
+    <div class="btn" id="startBtn">Press ENTER or Click to Start</div>
+    <div class="hint">P1: WASD + F • P2: Arrows + / • (Enable up to 4 players in code)</div>
+  </div>
+  <div class="bottom">Pause: <b>P</b> • Restart: <b>R</b></div>
+</div>
+
+<script>
+(() => {
+  // ======== CONFIG ========
+  const CONFIG = {
+    targetScore: 10,
+    maxPlayers: 2, // Change to 3 or 4 if you want more local players
+    playerRadius: 22,
+    playerSpeed: 2.4,
+    friction: 0.86,
+    meowCooldownMs: 1100,
+    meowKnockRange: 95,
+    meowKnockForce: 5.5,
+    treatRadius: 10,
+    treatsOnField: 6,
+    treatRespawnMs: 1600,
+    dogeEveryMs: 9000,
+    roombas: 2,
+    laserActive: true,
+    laserInvertMs: 2000,
+    boundsPadding: 8
+  };
+
+  const SKINS = [
+    { name:"Grumpy", emoji:"😾", chip:"p1", color:"#ff9aa2" },
+    { name:"Nyan", emoji:"🐱‍👤", chip:"p2", color:"#9ad1ff" }, // fun ninja cat emoji
+    { name:"Keyboard", emoji:"🎹🐱", chip:"p3", color:"#b5ff9a" },
+    { name:"Bongo", emoji:"🥁🐱", chip:"p4", color:"#ffdf9a" },
+  ];
+
+  // ======== SETUP ========
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  let W = 0, H = 0;
+  const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  function resize() {
+    W = Math.floor(window.innerWidth);
+    H = Math.floor(window.innerHeight);
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  // ======== INPUT ========
+  const keys = new Set();
+  window.addEventListener('keydown', (e) => { keys.add(e.key); if (e.key === 'Enter') start(); if ([' '].includes(e.key)) e.preventDefault(); });
+  window.addEventListener('keyup', (e) => keys.delete(e.key));
+
+  // ======== UTIL ========
+  const rnd = (a,b)=> a + Math.random()*(b-a);
+  const clamp = (v,a,b)=> Math.max(a, Math.min(b,v));
+  function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
+  function circleCollide(ax,ay,ar, bx,by,br){ return Math.hypot(ax-bx, ay-by) <= ar+br; }
+  function edgeBounce(entity, r){
+    if (entity.x < r) { entity.x = r; entity.vx = Math.abs(entity.vx)*0.6; }
+    if (entity.x > W - r) { entity.x = W - r; entity.vx = -Math.abs(entity.vx)*0.6; }
+    if (entity.y < r) { entity.y = r; entity.vy = Math.abs(entity.vy)*0.6; }
+    if (entity.y > H - r) { entity.y = H - r; entity.vy = -Math.abs(entity.vy)*0.6; }
+  }
+
+  // ======== ENTITIES ========
+  const players = [];
+  const treats = [];
+  const roombas = [];
+  const meowBursts = [];
+  let doge = null;
+  let laser = null;
+
+  // Player controls map
+  const CONTROL_SETS = [
+    { up:'w', down:'s', left:'a', right:'d', meow:'f' },
+    { up:'ArrowUp', down:'ArrowDown', left:'ArrowLeft', right:'ArrowRight', meow:'/' },
+    { up:'i', down:'k', left:'j', right:'l', meow:'h' },
+    { up:'t', down:'g', left:'f', right:'h', meow:'y' },
+  ];
+
+  function spawnPlayers(n=CONFIG.maxPlayers){
+    players.length = 0;
+    for(let i=0;i<n;i++){
+      const skin = SKINS[i % SKINS.length];
+      const p = {
+        id:i,
+        name: skin.name,
+        emoji: skin.emoji,
+        color: skin.color,
+        chip: skin.chip,
+        x: W*(0.2 + 0.2*i),
+        y: H*(0.3 + 0.1*i),
+        vx:0, vy:0,
+        r: CONFIG.playerRadius,
+        score:0,
+        controls: CONTROL_SETS[i],
+        invertUntil:0,
+        lastMeow: -9999,
+        alive:true,
+      };
+      players.push(p);
+    }
+    updateScoreUI();
+  }
+
+  function spawnTreat(){
+    const t = { x:rnd(CONFIG.boundsPadding, W-CONFIG.boundsPadding),
+                y:rnd(CONFIG.boundsPadding+40, H-CONFIG.boundsPadding),
+                r: CONFIG.treatRadius, emoji:'🐟' };
+    treats.push(t);
+  }
+
+  function ensureTreats(){
+    while (treats.length < CONFIG.treatsOnField) spawnTreat();
+  }
+
+  function spawnRoombas(){
+    roombas.length = 0;
+    for (let i=0;i<CONFIG.roombas;i++){
+      roombas.push({
+        x: rnd(60, W-60),
+        y: rnd(80, H-60),
+        r: 18,
+        vx: rnd(-1.4,1.4),
+        vy: rnd(-1.4,1.4),
+        emoji:'🧹', // broom as a 'roomba' vibe
+      });
+    }
+  }
+
+  function spawnDoge(){
+    const side = Math.random() < 0.5 ? 'L' : 'R';
+    doge = {
+      x: side==='L' ? -60 : W+60,
+      y: rnd(90, H-90),
+      r: 26,
+      vx: side==='L' ? rnd(3.2,4.0) : rnd(-4.0,-3.2),
+      vy: 0,
+      emoji:'🐶', // Doge cameo
+      ttl: 6000
+    };
+  }
+
+  function spawnLaser(){
+    laser = {
+      x:rnd(40,W-40),
+      y:rnd(90,H-40),
+      r: 10,
+      emoji:'🔴',
+      t:0,
+      targetX:rnd(40,W-40),
+      targetY:rnd(90,H-40),
+      speed: 3.6
+    };
+  }
+
+  // ======== GAME LOOP ========
+  let running = false;
+  let last = performance.now();
+  let acc = 0;
+  const dt = 1000/60;
+  let nextTreatAt = 0;
+  let nextDogeAt = 0;
+
+  function start(){
+    if (running) return;
+    document.getElementById('center').style.display='none';
+    running = true;
+    resetGame();
+    last = performance.now();
+    requestAnimationFrame(loop);
+  }
+
+  function resetGame(){
+    spawnPlayers(CONFIG.maxPlayers);
+    treats.length=0;
+    roombas.length=0;
+    meowBursts.length=0;
+    doge = null;
+    if (CONFIG.laserActive) spawnLaser();
+    spawnRoombas();
+    for(let i=0;i<CONFIG.treatsOnField;i++) spawnTreat();
+    nextTreatAt = performance.now() + CONFIG.treatRespawnMs;
+    nextDogeAt = performance.now() + CONFIG.dogeEveryMs;
+    winner = null;
+    paused = false;
+    updateStatus('Collect fish. First to ' + CONFIG.targetScore + '!');
+  }
+
+  function updateStatus(s){ document.getElementById('status').textContent = s; }
+  function updateScoreUI(){
+    const el = document.getElementById('scores');
+    el.innerHTML = '';
+    players.forEach(p=>{
+      const span = document.createElement('span');
+      span.className = `pchip ${p.chip}`;
+      span.textContent = `${p.emoji} ${p.name}: ${p.score}`;
+      el.appendChild(span);
+    });
+    document.getElementById('targetPts').textContent = CONFIG.targetScore;
+  }
+
+  let paused = false;
+  window.addEventListener('keydown', (e)=>{
+    if (e.key.toLowerCase()==='p'){ paused = !paused; updateStatus(paused?'Paused':''); }
+    if (e.key.toLowerCase()==='r'){ resetGame(); }
+  });
+  document.getElementById('startBtn').addEventListener('click', start);
+
+  let winner = null;
+
+  function handleInput(p){
+    const now = performance.now();
+    let up = keys.has(p.controls.up) || keys.has(p.controls.up.toUpperCase());
+    let down = keys.has(p.controls.down) || keys.has(p.controls.down.toUpperCase());
+    let left = keys.has(p.controls.left) || keys.has(p.controls.left.toUpperCase());
+    let right = keys.has(p.controls.right) || keys.has(p.controls.right.toUpperCase());
+
+    // Inverted controls if laser-distracted
+    if (now < p.invertUntil){ [up,down,left,right] = [down,up,right,left]; }
+
+    const speed = CONFIG.playerSpeed;
+    if (up) p.vy -= speed*0.6;
+    if (down) p.vy += speed*0.6;
+    if (left) p.vx -= speed*0.6;
+    if (right) p.vx += speed*0.6;
+
+    // Meow knockback
+    if (keys.has(p.controls.meow) && now - p.lastMeow > CONFIG.meowCooldownMs){
+      p.lastMeow = now;
+      meowBursts.push({ x:p.x, y:p.y, r:10, maxR: CONFIG.meowKnockRange, born: now, life: 220, owner:p });
+      // Apply effect immediately to others within range
+      for (const other of players){
+        if (other === p) continue;
+        const dx = other.x - p.x, dy = other.y - p.y;
+        const d = Math.hypot(dx,dy);
+        if (d > 0 && d <= CONFIG.meowKnockRange){
+          const nx = dx/d, ny = dy/d;
+          const force = CONFIG.meowKnockForce * (1 - d/CONFIG.meowKnockRange + 0.2);
+          other.vx += nx*force;
+          other.vy += ny*force;
+        }
+      }
+      updateStatus(`${p.name} used MEOW POWER!`);
+    }
+  }
+
+  function updatePlayer(p){
+    p.vx *= CONFIG.friction;
+    p.vy *= CONFIG.friction;
+    p.x += p.vx;
+    p.y += p.vy;
+    edgeBounce(p, p.r);
+  }
+
+  function updateTreats(){
+    // Collect
+    for (let i=treats.length-1;i>=0;i--){
+      const t = treats[i];
+      for (const p of players){
+        if (circleCollide(p.x,p.y,p.r, t.x,t.y,t.r)){
+          p.score++;
+          updateScoreUI();
+          treats.splice(i,1);
+          if (p.score >= CONFIG.targetScore && !winner){
+            winner = p;
+            paused = true;
+            updateStatus(`🎉 ${p.emoji} ${p.name} WINS! Press R to restart.`);
+          }
+          break;
+        }
+      }
+    }
+    // Respawn timer
+    const now = performance.now();
+    if (now >= nextTreatAt){
+      nextTreatAt = now + CONFIG.treatRespawnMs;
+      if (treats.length < CONFIG.treatsOnField) spawnTreat();
+    }
+  }
+
+  function updateRoombas(){
+    for (const r of roombas){
+      r.x += r.vx; r.y += r.vy;
+      if (r.x < 40 || r.x > W-40) r.vx *= -1;
+      if (r.y < 70 || r.y > H-40) r.vy *= -1;
+      // Push players slightly
+      for (const p of players){
+        if (circleCollide(p.x,p.y,p.r, r.x,r.y,r.r)){
+          const dx = p.x - r.x, dy = p.y - r.y; const d = Math.hypot(dx,dy)||1;
+          const nx = dx/d, ny = dy/d;
+          p.vx += nx*1.8; p.vy += ny*1.8;
+        }
+      }
+    }
+  }
+
+  function updateDoge(){
+    const now = performance.now();
+    if (!doge && now >= nextDogeAt){ nextDogeAt = now + CONFIG.dogeEveryMs; spawnDoge(); }
+    if (doge){
+      doge.x += doge.vx; doge.y += doge.vy;
+      doge.ttl -= 16;
+      // Push players hard
+      for (const p of players){
+        if (circleCollide(p.x,p.y,p.r, doge.x,doge.y,doge.r)){
+          const dx = p.x - doge.x, dy = p.y - doge.y; const d = Math.hypot(dx,dy)||1;
+          const nx = dx/d, ny = dy/d;
+          p.vx += nx*4.2; p.vy += ny*4.2;
+        }
+      }
+      // Despawn if offscreen long enough
+      if (doge.ttl <= 0 || doge.x < -80 || doge.x > W+80) doge = null;
+    }
+  }
+
+  function updateLaser(){
+    if (!laser) return;
+    laser.t += 1;
+    // retarget sometimes
+    if (laser.t % 120 === 0){
+      laser.targetX = rnd(40,W-40);
+      laser.targetY = rnd(90,H-40);
+    }
+    const dx = laser.targetX - laser.x;
+    const dy = laser.targetY - laser.y;
+    const d = Math.hypot(dx,dy)||1;
+    laser.x += (dx/d) * laser.speed;
+    laser.y += (dy/d) * laser.speed;
+
+    // Invert controls on touch
+    for (const p of players){
+      if (circleCollide(p.x,p.y,p.r, laser.x,laser.y, laser.r+6)){
+        p.invertUntil = performance.now() + CONFIG.laserInvertMs;
+        updateStatus(`${p.name} is distracted by the LASER!`);
+      }
+    }
+  }
+
+  function updateMeowBursts(){
+    const now = performance.now();
+    for (let i=meowBursts.length-1;i>=0;i--){
+      const b = meowBursts[i];
+      const life = (now - b.born);
+      b.r = b.maxR * Math.min(1, life / b.life);
+      if (life > b.life) meowBursts.splice(i,1);
+    }
+  }
+
+  function loop(t){
+    requestAnimationFrame(loop);
+    const now = t;
+    if (!running) return;
+    let delta = now - last;
+    last = now;
+    if (delta > 100) delta = 100; // clamp
+    acc += delta;
+
+    while (acc >= dt){
+      if (!paused && !winner){
+        for (const p of players){ handleInput(p); updatePlayer(p); }
+        updateTreats();
+        updateRoombas();
+        updateDoge();
+        updateLaser();
+        updateMeowBursts();
+      }
+      acc -= dt;
+    }
+    render();
+  }
+
+  // ======== RENDER ========
+  function renderBG(){
+    // Gradient-ish grid
+    ctx.fillStyle = '#10131a';
+    ctx.fillRect(0,0,W,H);
+    ctx.save();
+    ctx.globalAlpha = 0.12;
+    for (let x=0; x<W; x+=40){
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(x, 0, 1, H);
+    }
+    for (let y=0; y<H; y+=40){
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, y, W, 1);
+    }
+    ctx.restore();
+
+    // Top safe HUD strip
+    ctx.fillStyle = 'rgba(0,0,0,.25)';
+    ctx.fillRect(0,0,W,50);
+  }
+
+  function drawCircle(x,y,r, fill, stroke){
+    ctx.beginPath();
+    ctx.arc(x,y,r,0,Math.PI*2);
+    if (fill){ ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke){ ctx.lineWidth = 2; ctx.strokeStyle = stroke; ctx.stroke(); }
+  }
+
+  function render(){
+    renderBG();
+
+    // Treats
+    for (const t of treats){
+      drawCircle(t.x,t.y,t.r+4,'#1b2a2a',null);
+      ctx.font = '18px system-ui';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('🐟', t.x, t.y);
+    }
+
+    // Roombas
+    for (const r of roombas){
+      drawCircle(r.x,r.y,r.r,'#2b2f3a','#3a4152');
+      ctx.font = '16px system-ui';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(r.emoji, r.x, r.y);
+    }
+
+    // Doge
+    if (doge){
+      drawCircle(doge.x,doge.y,doge.r,'#3a2f2b','#5a423a');
+      ctx.font = '20px system-ui';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('🐶', doge.x, doge.y);
+    }
+
+    // Laser
+    if (laser){
+      drawCircle(laser.x, laser.y, laser.r, '#e53935', '#ffffff');
+      ctx.font = '12px system-ui';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('🔴', laser.x, laser.y);
+    }
+
+    // Meow bursts
+    for (const b of meowBursts){
+      ctx.save();
+      ctx.globalAlpha = 0.18;
+      drawCircle(b.x,b.y,b.r,null,'#ffffff');
+      ctx.restore();
+    }
+
+    // Players
+    for (const p of players){
+      drawCircle(p.x,p.y,p.r, p.color, '#ffffff');
+      ctx.font = '18px system-ui';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('🐱', p.x, p.y);
+      // name/emoji label
+      ctx.font = '12px system-ui';
+      ctx.fillStyle = 'rgba(255,255,255,.85)';
+      ctx.fillText(`${p.emoji}`, p.x, p.y - p.r - 14);
+    }
+
+    // Winner banner
+    if (winner){
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,.45)';
+      ctx.fillRect(0,0,W,H);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 42px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(`🎉 ${winner.emoji} ${winner.name} WINS!`, W/2, H/2 - 10);
+      ctx.font = '18px system-ui';
+      ctx.fillText('Press R to restart', W/2, H/2 + 24);
+      ctx.restore();
+    }
+  }
+
+  // ======== BOOT ========
+  // Show start screen, wait for Enter/click
+  // (Game starts via start())
+})();
+</script>
+</body>
+</html>
