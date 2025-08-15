@@ -15,6 +15,7 @@
   .p2 { background:#9ad1ff; color:#121a24; }
   .p3 { background:#b5ff9a; color:#0f1a10; }
   .p4 { background:#ffdf9a; color:#1a160f; }
+  .p5 { background:#c4a2ff; color:#1a1024; }
   .ctr { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); text-align:center; }
   .btn { display:inline-block; padding:12px 18px; border-radius:12px; background:#2c2f3a; color:#fff; font-weight:800; letter-spacing:.3px; cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,.35); }
   .btn:active { transform:translate(-50%,-48%); }
@@ -35,7 +36,7 @@
     <div style="font-size:42px; font-weight:900; margin-bottom:10px;">Meow Mayhem 😼</div>
     <div style="font-size:18px; opacity:.9; margin-bottom:20px;">Collect 🐟. Bonk friends. Avoid chaos. First to <span id="targetPts">10</span> wins.</div>
     <div class="btn" id="startBtn">Press ENTER or Click to Start</div>
-    <div class="hint">P1: WASD + F • P2: Arrows + / • (Enable up to 4 players in code)</div>
+    <div class="hint">P1: WASD + F • P2: Arrows + / • (Enable up to 5 players in code)</div>
   </div>
   <div class="bottom">Pause: <b>P</b> • Restart: <b>R</b></div>
 </div>
@@ -45,28 +46,32 @@
   // ======== CONFIG ========
   const CONFIG = {
     targetScore: 10,
-    maxPlayers: 2, // Change to 3 or 4 if you want more local players
+    maxPlayers: 2, // Change to 3, 4, or 5 if you want more local players
     playerRadius: 22,
     playerSpeed: 2.4,
     friction: 0.86,
     meowCooldownMs: 1100,
-    meowKnockRange: 95,
-    meowKnockForce: 5.5,
+    meowKnockRange: 140, // Increased from 95
+    meowKnockForce: 9.5, // Increased from 5.5
+    meowParticles: 12, // New: particles count
     treatRadius: 10,
     treatsOnField: 6,
     treatRespawnMs: 1600,
     dogeEveryMs: 9000,
+    dogeSpeed: 2.0, // Speed for doge to chase player (slightly slower than player)
     roombas: 2,
+    laserCount: 5, // Increased from 1 to 5
     laserActive: true,
     laserInvertMs: 2000,
     boundsPadding: 8
   };
 
   const SKINS = [
-    { name:"Grumpy", emoji:"😾", chip:"p1", color:"#ff9aa2" },
-    { name:"Nyan", emoji:"🐱‍👤", chip:"p2", color:"#9ad1ff" }, // fun ninja cat emoji
-    { name:"Keyboard", emoji:"🎹🐱", chip:"p3", color:"#b5ff9a" },
-    { name:"Bongo", emoji:"🥁🐱", chip:"p4", color:"#ffdf9a" },
+    { name:"Grumpy", emoji:"😾", chip:"p1", color:"#ff9aa2", image: "🐱" },
+    { name:"Nyan", emoji:"🌈", chip:"p2", color:"#9ad1ff", image: "🐱" }, 
+    { name:"Keyboard", emoji:"🎹", chip:"p3", color:"#b5ff9a", image: "🐱" },
+    { name:"Bongo", emoji:"🥁", chip:"p4", color:"#ffdf9a", image: "🐱" },
+    { name:"Shrek", emoji:"👹", chip:"p5", color:"#c4a2ff", image: "🐱" }, // Added Shrek Cat
   ];
 
   // ======== SETUP ========
@@ -108,8 +113,9 @@
   const treats = [];
   const roombas = [];
   const meowBursts = [];
+  const meowParticles = []; // New: particles array
   let doge = null;
-  let laser = null;
+  const lasers = []; // Changed from single laser to array of lasers
 
   // Player controls map
   const CONTROL_SETS = [
@@ -117,6 +123,7 @@
     { up:'ArrowUp', down:'ArrowDown', left:'ArrowLeft', right:'ArrowRight', meow:'/' },
     { up:'i', down:'k', left:'j', right:'l', meow:'h' },
     { up:'t', down:'g', left:'f', right:'h', meow:'y' },
+    { up:'8', down:'5', left:'4', right:'6', meow:'0' },
   ];
 
   function spawnPlayers(n=CONFIG.maxPlayers){
@@ -129,6 +136,7 @@
         emoji: skin.emoji,
         color: skin.color,
         chip: skin.chip,
+        image: skin.image,
         x: W*(0.2 + 0.2*i),
         y: H*(0.3 + 0.1*i),
         vx:0, vy:0,
@@ -138,6 +146,8 @@
         invertUntil:0,
         lastMeow: -9999,
         alive:true,
+        isBeingMeowed: false, // New: track if player is under meow effect
+        meowEffectUntil: 0, // New: track how long the meow effect lasts
       };
       players.push(p);
     }
@@ -175,24 +185,46 @@
       x: side==='L' ? -60 : W+60,
       y: rnd(90, H-90),
       r: 26,
-      vx: side==='L' ? rnd(3.2,4.0) : rnd(-4.0,-3.2),
+      vx: side==='L' ? rnd(2.0,2.5) : rnd(-2.5,-2.0),
       vy: 0,
       emoji:'🐶', // Doge cameo
-      ttl: 6000
+      ttl: 12000, // Increased lifespan so it can chase players longer
+      target: null
     };
   }
 
-  function spawnLaser(){
-    laser = {
-      x:rnd(40,W-40),
-      y:rnd(90,H-40),
-      r: 10,
-      emoji:'🔴',
-      t:0,
-      targetX:rnd(40,W-40),
-      targetY:rnd(90,H-40),
-      speed: 3.6
-    };
+  function spawnLasers(){
+    lasers.length = 0;
+    for (let i = 0; i < CONFIG.laserCount; i++) {
+      lasers.push({
+        x: rnd(40, W-40),
+        y: rnd(90, H-40),
+        r: 10,
+        emoji: '🔴',
+        t: Math.floor(rnd(0, 120)), // Staggered timing
+        targetX: rnd(40, W-40),
+        targetY: rnd(90, H-40),
+        speed: rnd(2.8, 4.2) // Varied speeds
+      });
+    }
+  }
+
+  // New: Create particle effect
+  function createMeowParticles(x, y, color) {
+    for (let i = 0; i < CONFIG.meowParticles; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = rnd(2, 6);
+      meowParticles.push({
+        x: x,
+        y: y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        r: rnd(3, 8),
+        color: color,
+        life: rnd(30, 80),
+        opacity: 1
+      });
+    }
   }
 
   // ======== GAME LOOP ========
@@ -217,8 +249,9 @@
     treats.length=0;
     roombas.length=0;
     meowBursts.length=0;
+    meowParticles.length=0; // Clear particles
     doge = null;
-    if (CONFIG.laserActive) spawnLaser();
+    if (CONFIG.laserActive) spawnLasers();
     spawnRoombas();
     for(let i=0;i<CONFIG.treatsOnField;i++) spawnTreat();
     nextTreatAt = performance.now() + CONFIG.treatRespawnMs;
@@ -269,7 +302,11 @@
     // Meow knockback
     if (keys.has(p.controls.meow) && now - p.lastMeow > CONFIG.meowCooldownMs){
       p.lastMeow = now;
-      meowBursts.push({ x:p.x, y:p.y, r:10, maxR: CONFIG.meowKnockRange, born: now, life: 220, owner:p });
+      meowBursts.push({ x:p.x, y:p.y, r:10, maxR: CONFIG.meowKnockRange, born: now, life: 320, owner:p });
+      
+      // Create visual particles for meow effect
+      createMeowParticles(p.x, p.y, p.color);
+      
       // Apply effect immediately to others within range
       for (const other of players){
         if (other === p) continue;
@@ -280,6 +317,13 @@
           const force = CONFIG.meowKnockForce * (1 - d/CONFIG.meowKnockRange + 0.2);
           other.vx += nx*force;
           other.vy += ny*force;
+          
+          // Mark player as being meowed for visual effects
+          other.isBeingMeowed = true;
+          other.meowEffectUntil = now + 800;
+          
+          // Create visual particles at impact point
+          createMeowParticles(other.x, other.y, other.color);
         }
       }
       updateStatus(`${p.name} used MEOW POWER!`);
@@ -287,6 +331,13 @@
   }
 
   function updatePlayer(p){
+    const now = performance.now();
+    
+    // Update meow effect status
+    if (p.isBeingMeowed && now > p.meowEffectUntil) {
+      p.isBeingMeowed = false;
+    }
+    
     p.vx *= CONFIG.friction;
     p.vy *= CONFIG.friction;
     p.x += p.vx;
@@ -303,6 +354,10 @@
           p.score++;
           updateScoreUI();
           treats.splice(i,1);
+          
+          // Create particle effect when collecting treats
+          createMeowParticles(t.x, t.y, "#5dffea");
+          
           if (p.score >= CONFIG.targetScore && !winner){
             winner = p;
             paused = true;
@@ -331,6 +386,11 @@
           const dx = p.x - r.x, dy = p.y - r.y; const d = Math.hypot(dx,dy)||1;
           const nx = dx/d, ny = dy/d;
           p.vx += nx*1.8; p.vy += ny*1.8;
+          
+          // Small particles when hitting roomba
+          if (Math.random() < 0.3) {
+            createMeowParticles(p.x - (nx*p.r), p.y - (ny*p.r), "#aaaaaa");
+          }
         }
       }
     }
@@ -340,40 +400,72 @@
     const now = performance.now();
     if (!doge && now >= nextDogeAt){ nextDogeAt = now + CONFIG.dogeEveryMs; spawnDoge(); }
     if (doge){
+      // Find closest player to chase
+      let closestDist = Infinity;
+      let closestPlayer = null;
+      for (const p of players) {
+        const d = dist(doge, p);
+        if (d < closestDist) {
+          closestDist = d;
+          closestPlayer = p;
+        }
+      }
+      
+      // Chase closest player
+      if (closestPlayer) {
+        const dx = closestPlayer.x - doge.x;
+        const dy = closestPlayer.y - doge.y;
+        const d = Math.hypot(dx, dy) || 1;
+        doge.vx = (dx/d) * CONFIG.dogeSpeed;
+        doge.vy = (dy/d) * CONFIG.dogeSpeed;
+      }
+      
       doge.x += doge.vx; doge.y += doge.vy;
       doge.ttl -= 16;
+      
       // Push players hard
       for (const p of players){
         if (circleCollide(p.x,p.y,p.r, doge.x,doge.y,doge.r)){
           const dx = p.x - doge.x, dy = p.y - doge.y; const d = Math.hypot(dx,dy)||1;
           const nx = dx/d, ny = dy/d;
           p.vx += nx*4.2; p.vy += ny*4.2;
+          
+          // Particle effect when hit by doge
+          createMeowParticles(p.x - (nx*p.r/2), p.y - (ny*p.r/2), "#ffbb33");
         }
       }
-      // Despawn if offscreen long enough
-      if (doge.ttl <= 0 || doge.x < -80 || doge.x > W+80) doge = null;
+      
+      // Despawn if offscreen long enough or TTL expired
+      if (doge.ttl <= 0 || doge.x < -80 || doge.x > W+80 || doge.y < -80 || doge.y > H+80) doge = null;
     }
   }
 
-  function updateLaser(){
-    if (!laser) return;
-    laser.t += 1;
-    // retarget sometimes
-    if (laser.t % 120 === 0){
-      laser.targetX = rnd(40,W-40);
-      laser.targetY = rnd(90,H-40);
-    }
-    const dx = laser.targetX - laser.x;
-    const dy = laser.targetY - laser.y;
-    const d = Math.hypot(dx,dy)||1;
-    laser.x += (dx/d) * laser.speed;
-    laser.y += (dy/d) * laser.speed;
+  function updateLasers(){
+    for (let i = 0; i < lasers.length; i++) {
+      const laser = lasers[i];
+      laser.t += 1;
+      
+      // Retarget sometimes (different timing for each laser)
+      if (laser.t % 120 === 0){
+        laser.targetX = rnd(40, W-40);
+        laser.targetY = rnd(90, H-40);
+      }
+      
+      const dx = laser.targetX - laser.x;
+      const dy = laser.targetY - laser.y;
+      const d = Math.hypot(dx,dy)||1;
+      laser.x += (dx/d) * laser.speed;
+      laser.y += (dy/d) * laser.speed;
 
-    // Invert controls on touch
-    for (const p of players){
-      if (circleCollide(p.x,p.y,p.r, laser.x,laser.y, laser.r+6)){
-        p.invertUntil = performance.now() + CONFIG.laserInvertMs;
-        updateStatus(`${p.name} is distracted by the LASER!`);
+      // Invert controls on touch
+      for (const p of players){
+        if (circleCollide(p.x,p.y,p.r, laser.x,laser.y, laser.r+6)){
+          p.invertUntil = performance.now() + CONFIG.laserInvertMs;
+          updateStatus(`${p.name} is distracted by the LASER!`);
+          
+          // Particle effect when hit by laser
+          createMeowParticles(laser.x, laser.y, "#ff3333");
+        }
       }
     }
   }
@@ -385,6 +477,24 @@
       const life = (now - b.born);
       b.r = b.maxR * Math.min(1, life / b.life);
       if (life > b.life) meowBursts.splice(i,1);
+    }
+  }
+  
+  // Update particles
+  function updateParticles() {
+    for (let i = meowParticles.length - 1; i >= 0; i--) {
+      const p = meowParticles[i];
+      p.x += p.vx;
+      p.vy += 0.1; // Gravity
+      p.y += p.vy;
+      p.vx *= 0.95; // Air resistance
+      p.vy *= 0.95;
+      p.life -= 1;
+      p.opacity = p.life / 80;
+      
+      if (p.life <= 0) {
+        meowParticles.splice(i, 1);
+      }
     }
   }
 
@@ -403,8 +513,9 @@
         updateTreats();
         updateRoombas();
         updateDoge();
-        updateLaser();
+        updateLasers();
         updateMeowBursts();
+        updateParticles(); // Update particle effects
       }
       acc -= dt;
     }
@@ -467,8 +578,8 @@
       ctx.fillText('🐶', doge.x, doge.y);
     }
 
-    // Laser
-    if (laser){
+    // Lasers
+    for (const laser of lasers) {
       drawCircle(laser.x, laser.y, laser.r, '#e53935', '#ffffff');
       ctx.font = '12px system-ui';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -478,18 +589,58 @@
     // Meow bursts
     for (const b of meowBursts){
       ctx.save();
+      const gradient = ctx.createRadialGradient(b.x, b.y, 1, b.x, b.y, b.r);
+      gradient.addColorStop(0, b.owner ? b.owner.color + '40' : '#ffffff40');
+      gradient.addColorStop(1, 'transparent');
+      ctx.fillStyle = gradient;
+      ctx.globalAlpha = 0.3;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
+      ctx.fill();
+      
       ctx.globalAlpha = 0.18;
-      drawCircle(b.x,b.y,b.r,null,'#ffffff');
+      drawCircle(b.x, b.y, b.r, null, '#ffffff');
+      ctx.restore();
+    }
+    
+    // Particles
+    for (const p of meowParticles) {
+      ctx.save();
+      ctx.globalAlpha = p.opacity;
+      drawCircle(p.x, p.y, p.r, p.color, null);
       ctx.restore();
     }
 
     // Players
     for (const p of players){
-      drawCircle(p.x,p.y,p.r, p.color, '#ffffff');
-      ctx.font = '18px system-ui';
+      // Special effect if player is being meowed
+      if (p.isBeingMeowed) {
+        ctx.save();
+        ctx.globalAlpha = 0.3;
+        drawCircle(p.x, p.y, p.r + 8, '#ffffff', null);
+        ctx.restore();
+      }
+      
+      drawCircle(p.x, p.y, p.r, p.color, '#ffffff');
+      
+      // Draw unique cat emoji based on player type
+      ctx.font = '28px system-ui';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('🐱', p.x, p.y);
-      // name/emoji label
+      
+      // Unique cat visuals
+      let catEmoji;
+      switch (p.name) {
+        case 'Grumpy': catEmoji = '😾'; break;
+        case 'Nyan': catEmoji = '🌈🐱'; break;
+        case 'Keyboard': catEmoji = '🎹🐱'; break;
+        case 'Bongo': catEmoji = '🥁🐱'; break;
+        case 'Shrek': catEmoji = '👹🐱'; break;
+        default: catEmoji = '🐱';
+      }
+      
+      ctx.fillText(catEmoji, p.x, p.y);
+      
+      // Name/emoji label
       ctx.font = '12px system-ui';
       ctx.fillStyle = 'rgba(255,255,255,.85)';
       ctx.fillText(`${p.emoji}`, p.x, p.y - p.r - 14);
@@ -503,9 +654,11 @@
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 42px system-ui';
       ctx.textAlign = 'center';
-      ctx.fillText(`🎉 ${winner.emoji} ${winner.name} WINS!`, W/2, H/2 - 10);
+      ctx.fillText(`🎉 ${winner.emoji} ${winner.name} WINS!`, W/2, H/2 - 30);
+      ctx.font = 'bold 36px system-ui';
+      ctx.fillText(`Winner Winner Fish Dinner!`, W/2, H/2 + 20);
       ctx.font = '18px system-ui';
-      ctx.fillText('Press R to restart', W/2, H/2 + 24);
+      ctx.fillText('Press R to restart', W/2, H/2 + 60);
       ctx.restore();
     }
   }
