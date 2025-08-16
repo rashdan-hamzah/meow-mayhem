@@ -492,6 +492,8 @@
   let currentScreen = 'lobby'; // 'lobby', 'waiting', 'game'
   let hostId = '';
   let lastReceivedPlayers = {}; // Keep track of the last state from the server
+  let isMultiplayerGame = false; // Flag to check if we're in a multiplayer game
+  let serverSyncEnabled = true; // Flag to enable/disable server synchronization
 
   // Helper function to get consistent remote player IDs
   function getRemotePlayerId(socketId) {
@@ -536,6 +538,7 @@
         setTimeout(() => {
           showScreen('lobbyScreen');
           currentScreen = 'lobby';
+          isMultiplayerGame = false;
         }, 3000);
       }
     });
@@ -685,6 +688,7 @@
     // Game events
     socket.on('game-started', (gameState) => {
       console.log('Game started with state:', gameState);
+      isMultiplayerGame = true;
       
       // CRITICAL FIX: Force hide all screens first
       document.querySelectorAll('.screen').forEach(screen => {
@@ -733,6 +737,253 @@
       // Add new treat to game
       spawnTreatFromData(treatData);
     });
+    
+    // NEW: Full game state synchronization events
+    socket.on('game-state-update', (gameState) => {
+      if (!isMultiplayerGame || !serverSyncEnabled) return;
+      
+      // Sync all game elements
+      syncTreats(gameState.treats);
+      syncDoge(gameState.doge);
+      syncRoombas(gameState.roombas);
+      syncLasers(gameState.lasers);
+      syncWeather(gameState.weather);
+      syncPowerUps(gameState.powerUps);
+      syncSecretSauce(gameState.secretSauce);
+      
+      // Update debug info
+      if (CONFIG.debugMode && Math.random() < 0.1) updateDebugInfo();
+    });
+  }
+  
+  // ======== IMPROVED MULTIPLAYER SYNC ========
+  
+  // Synchronize treat positions with server
+  function syncTreats(serverTreats) {
+    if (!serverTreats) return;
+    
+    // Remove treats that aren't in the server list
+    for (let i = treats.length - 1; i >= 0; i--) {
+      const localTreat = treats[i];
+      const serverTreat = serverTreats.find(t => t.id === localTreat.id);
+      if (!serverTreat) {
+        treats.splice(i, 1);
+      }
+    }
+    
+    // Update or add treats from server
+    serverTreats.forEach(serverTreat => {
+      const localTreat = treats.find(t => t.id === serverTreat.id);
+      if (localTreat) {
+        // Update existing treat
+        localTreat.x = serverTreat.x;
+        localTreat.y = serverTreat.y;
+        localTreat.vx = serverTreat.vx || 0;
+        localTreat.vy = serverTreat.vy || 0;
+      } else {
+        // Add new treat
+        spawnTreatFromData(serverTreat);
+      }
+    });
+  }
+  
+  // Synchronize doge with server
+  function syncDoge(serverDoge) {
+    if (!serverDoge) {
+      // Remove doge if it doesn't exist on server
+      doge = null;
+      return;
+    }
+    
+    if (!doge) {
+      // Create doge if it doesn't exist locally
+      doge = {
+        x: serverDoge.x,
+        y: serverDoge.y,
+        r: 26,
+        vx: serverDoge.vx,
+        vy: serverDoge.vy,
+        emoji: '🐶',
+        ttl: serverDoge.ttl || 15000,
+        eating: null,
+        eatingStartTime: 0
+      };
+    } else {
+      // Update existing doge
+      doge.x = serverDoge.x;
+      doge.y = serverDoge.y;
+      doge.vx = serverDoge.vx;
+      doge.vy = serverDoge.vy;
+      doge.ttl = serverDoge.ttl;
+      
+      // Handle eating state
+      if (serverDoge.eating) {
+        const eatenPlayerId = serverDoge.eating;
+        
+        // If eating a remote player
+        if (eatenPlayerId !== playerId) {
+          const remoteId = getRemotePlayerId(eatenPlayerId);
+          if (remotePlayers[remoteId]) {
+            doge.eating = remotePlayers[remoteId];
+          }
+        } 
+        // If eating local player
+        else if (players.length > 0) {
+          doge.eating = players[0];
+          
+          // Set local player to eaten state if not already
+          if (!players[0].beingEaten) {
+            players[0].beingEaten = true;
+            players[0].eatenUntil = performance.now() + CONFIG.dogeEatTimeMs;
+            players[0].respawnPoint = {
+              x: serverDoge.respawnX || rnd(100, W-100),
+              y: serverDoge.respawnY || rnd(100, H-100)
+            };
+            createExplosion(players[0].x, players[0].y, "#ff6600", 25);
+          }
+        }
+      } else {
+        doge.eating = null;
+      }
+    }
+  }
+  
+  // Synchronize roombas with server
+  function syncRoombas(serverRoombas) {
+    if (!serverRoombas) return;
+    
+    // Remove roombas that aren't in the server list
+    roombas.length = 0;
+    
+    // Add all server roombas
+    serverRoombas.forEach(r => {
+      roombas.push({
+        id: r.id,
+        x: r.x,
+        y: r.y,
+        r: 18,
+        vx: r.vx,
+        vy: r.vy,
+        emoji: '🧹'
+      });
+    });
+  }
+  
+  // Synchronize lasers with server
+  function syncLasers(serverLasers) {
+    if (!serverLasers) return;
+    
+    // Reset lasers array
+    lasers.length = 0;
+    
+    // Add all server lasers
+    serverLasers.forEach(l => {
+      lasers.push({
+        x: l.x,
+        y: l.y,
+        r: 10,
+        emoji: '🔴',
+        t: l.t || 0,
+        targetX: l.targetX,
+        targetY: l.targetY,
+        speed: l.speed || 3.5
+      });
+    });
+  }
+  
+  // Synchronize weather with server
+  function syncWeather(serverWeather) {
+    if (!serverWeather) {
+      // End current weather if server has none
+      if (currentWeather) {
+        currentWeather.event.onEnd();
+        currentWeather = null;
+      }
+      return;
+    }
+    
+    // Check if it's a new weather event
+    if (!currentWeather || currentWeather.event.name !== serverWeather.name) {
+      // End current weather if exists
+      if (currentWeather) {
+        currentWeather.event.onEnd();
+      }
+      
+      // Start new weather
+      const weatherEvent = WEATHER_EVENTS.find(e => e.name === serverWeather.name);
+      if (weatherEvent) {
+        currentWeather = {
+          event: weatherEvent,
+          endTime: performance.now() + (serverWeather.duration || CONFIG.weatherDuration)
+        };
+        weatherEvent.onStart();
+      }
+    }
+  }
+  
+  // Synchronize power-ups with server
+  function syncPowerUps(serverPowerUps) {
+    if (!serverPowerUps) return;
+    
+    // Remove power-ups that aren't in the server list
+    for (let i = powerUps.length - 1; i >= 0; i--) {
+      const localPowerUp = powerUps[i];
+      const serverPowerUp = serverPowerUps.find(p => p.id === localPowerUp.id);
+      if (!serverPowerUp) {
+        powerUps.splice(i, 1);
+      }
+    }
+    
+    // Add/update power-ups from server
+    serverPowerUps.forEach(serverPowerUp => {
+      const localPowerUp = powerUps.find(p => p.id === serverPowerUp.id);
+      if (!localPowerUp) {
+        const powerUpType = POWERUPS.find(t => t.name === serverPowerUp.type) || POWERUPS[0];
+        powerUps.push({
+          id: serverPowerUp.id,
+          x: serverPowerUp.x,
+          y: serverPowerUp.y,
+          r: 15,
+          type: powerUpType,
+          emoji: powerUpType.emoji,
+          collectTime: 0,
+          collectPlayer: null,
+          pulsePhase: 0
+        });
+      } else {
+        // Update existing power-up
+        localPowerUp.x = serverPowerUp.x;
+        localPowerUp.y = serverPowerUp.y;
+      }
+    });
+  }
+  
+  // Synchronize secret sauce state with server
+  function syncSecretSauce(serverSecretSauce) {
+    if (!serverSecretSauce) return;
+    
+    // Update secret sauce state
+    secretSauceActive = serverSecretSauce.active;
+    
+    if (secretSauceActive) {
+      document.getElementById('warning').style.display = 'block';
+      document.getElementById('timer').textContent = 'CHAOS MODE!';
+      updateStatus('⚠️ CHAOS MODE ACTIVATED! ⚠️');
+    } else {
+      document.getElementById('warning').style.display = 'none';
+      document.getElementById('timer').textContent = `Chaos in: ${serverSecretSauce.countdown || 30}s`;
+      updateStatus('');
+    }
+    
+    // Update countdown
+    secretSauceCountdown = serverSecretSauce.countdown || 30;
+  }
+  
+  // Request treat from server instead of spawning locally
+  function requestTreatFromServer() {
+    if (socket && socket.connected && isMultiplayerGame) {
+      socket.emit('request-treat');
+    }
   }
 
   function setupUIEvents() {
@@ -941,6 +1192,7 @@
     info += `Host ID: ${hostId}<br>`;
     info += `Room Code: ${roomCode}<br>`;
     info += `Screen: ${currentScreen}<br>`;
+    info += `Multiplayer: ${isMultiplayerGame ? 'Yes' : 'No'}<br>`;
     info += `Local Players: ${players.length}<br>`;
     info += `Remote Players: ${Object.keys(remotePlayers).length}<br>`;
     
@@ -951,6 +1203,15 @@
         info += `- ${id}: ${remotePlayers[id].x.toFixed(0)},${remotePlayers[id].y.toFixed(0)}<br>`;
       }
     }
+    
+    // Add game elements counts
+    info += `<br>Game Elements:<br>`;
+    info += `Treats: ${treats.length}<br>`;
+    info += `Roombas: ${roombas.length}<br>`;
+    info += `Lasers: ${lasers.length}<br>`;
+    info += `PowerUps: ${powerUps.length}<br>`;
+    info += `Doge: ${doge ? 'Present' : 'None'}<br>`;
+    info += `Weather: ${currentWeather ? currentWeather.event.name : 'None'}<br>`;
     
     overlay.innerHTML = info;
   }
@@ -1022,24 +1283,60 @@
     p.imgElement = createCatImage(p);
     players.push(p);
     
-    // Add treats from server data
-    treats.length = 0;
-    if (gameState && gameState.treats) {
-      gameState.treats.forEach(treatData => {
-        spawnTreatFromData(treatData);
-      });
+    // Use server state for all game elements
+    if (gameState) {
+      // Initialize treats
+      treats.length = 0;
+      if (gameState.treats) {
+        gameState.treats.forEach(treatData => {
+          spawnTreatFromData(treatData);
+        });
+      }
+      
+      // Initialize roombas
+      roombas.length = 0;
+      if (gameState.roombas) {
+        gameState.roombas.forEach(roombaData => {
+          spawnRoombaFromData(roombaData);
+        });
+      }
+      
+      // Initialize lasers
+      if (gameState.lasers) {
+        syncLasers(gameState.lasers);
+      } else if (CONFIG.laserActive) {
+        spawnLasers();
+      }
+      
+      // Initialize doge
+      if (gameState.doge) {
+        syncDoge(gameState.doge);
+      } else {
+        doge = null;
+      }
+      
+      // Initialize weather
+      if (gameState.weather) {
+        syncWeather(gameState.weather);
+      } else {
+        currentWeather = null;
+      }
+      
+      // Initialize power-ups
+      if (gameState.powerUps) {
+        syncPowerUps(gameState.powerUps);
+      }
+      
+      // Initialize secret sauce
+      if (gameState.secretSauce) {
+        syncSecretSauce(gameState.secretSauce);
+      }
+    } else {
+      // Fallback to local initialization if no server state
+      if (CONFIG.laserActive) spawnLasers();
+      spawnRoombas();
+      for(let i=0;i<CONFIG.treatsOnField;i++) spawnTreat();
     }
-    
-    // Add roombas from server data
-    roombas.length = 0;
-    if (gameState && gameState.roombas) {
-      gameState.roombas.forEach(roombaData => {
-        spawnRoombaFromData(roombaData);
-      });
-    }
-    
-    // Setup game world
-    if (CONFIG.laserActive) spawnLasers();
     
     // CRITICAL FIX: Force hide the center screen
     document.getElementById('center').style.display = 'none';
@@ -1063,10 +1360,15 @@
           id: id,
           position: playerData.position || { x: W/2, y: H/2 },
           skinIndex: playerData.skinIndex || 0,
-          score: playerData.score || 0
+          score: playerData.score || 0,
+          name: playerData.name || 'Remote Player'
         });
       }
     }
+    
+    // Enable multiplayer sync
+    isMultiplayerGame = true;
+    serverSyncEnabled = true;
     
     // Update debug info
     if (CONFIG.debugMode) updateDebugInfo();
@@ -1074,20 +1376,20 @@
 
   function spawnTreatFromData(treatData) {
     const t = { 
-      id: treatData.id,
+      id: treatData.id || Math.random().toString(36).substring(2, 15),
       x: treatData.x,
       y: treatData.y,
       r: CONFIG.treatRadius, 
       emoji:'🐟',
-      vx: 0,
-      vy: 0
+      vx: treatData.vx || 0,
+      vy: treatData.vy || 0
     };
     treats.push(t);
   }
 
   function spawnRoombaFromData(roombaData) {
     const r = {
-      id: roombaData.id,
+      id: roombaData.id || Math.random().toString(36).substring(2, 15),
       x: roombaData.x,
       y: roombaData.y,
       r: 18,
@@ -1124,6 +1426,7 @@
         score: data.score || 0,
         r: CONFIG.playerRadius,
         skinIndex: data.skinIndex || 0,
+        name: data.name || 'Remote Player',
         isRemote: true
       };
       
@@ -1164,9 +1467,9 @@
     span.id = `score-${player.id}`;
     
     // Use data from lastReceivedPlayers if available
-    let playerName = "Remote";
+    let playerName = player.name || "Remote";
     if (player.socketId && lastReceivedPlayers[player.socketId]) {
-      playerName = lastReceivedPlayers[player.socketId].name || "Remote";
+      playerName = lastReceivedPlayers[player.socketId].name || playerName;
     }
     
     span.textContent = `${SKINS[player.skinIndex].emoji} ${playerName}: ${player.score}`;
@@ -1182,9 +1485,9 @@
       const skinIndex = remotePlayers[id].skinIndex || 0;
       
       // Use data from lastReceivedPlayers if available
-      let playerName = "Remote";
+      let playerName = remotePlayers[id].name || "Remote";
       if (remotePlayers[id].socketId && lastReceivedPlayers[remotePlayers[id].socketId]) {
-        playerName = lastReceivedPlayers[remotePlayers[id].socketId].name || "Remote";
+        playerName = lastReceivedPlayers[remotePlayers[id].socketId].name || playerName;
       }
       
       scoreEl.textContent = `${SKINS[skinIndex].emoji} ${playerName}: ${score}`;
@@ -1226,6 +1529,14 @@
             }
             break;
           }
+        }
+        break;
+        
+      case 'game-end':
+        // Handle game over from server
+        if (data.winner) {
+          showNotification(`🎉 ${data.winner} wins!`);
+          paused = true;
         }
         break;
     }
@@ -1345,7 +1656,7 @@
         updateStatus("");
       }
     },
-    { name: "Tornado", onStart: () => {
+        { name: "Tornado", onStart: () => {
         spawnTornado();
         updateStatus("🌪️ Tornado Alert - Run for cover!");
       }, onEnd: () => {
@@ -1499,7 +1810,7 @@
     players.length = 0;
     
     // CRITICAL FIX: In multiplayer mode, only create one player (the local player)
-    if (currentScreen === 'game' && socket && socket.connected) {
+    if (isMultiplayerGame) {
       // Create just one local player in multiplayer mode
       n = 1;
     }
@@ -1543,6 +1854,12 @@
   }
 
   function spawnTreat(){
+    // In multiplayer mode, request from server instead
+    if (isMultiplayerGame && socket && socket.connected) {
+      requestTreatFromServer();
+      return;
+    }
+    
     const t = { 
       id: Math.random().toString(36).substring(2, 15),
       x: rnd(CONFIG.boundsPadding, W-CONFIG.boundsPadding),
@@ -1556,13 +1873,20 @@
   }
 
   function ensureTreats(){
+    // Skip in multiplayer mode - server will handle this
+    if (isMultiplayerGame) return;
+    
     while (treats.length < CONFIG.treatsOnField) spawnTreat();
   }
 
   function spawnRoombas(){
+    // Skip in multiplayer mode - server will handle this
+    if (isMultiplayerGame) return;
+    
     roombas.length = 0;
     for (let i=0;i<CONFIG.roombas;i++){
       roombas.push({
+        id: Math.random().toString(36).substring(2, 15),
         x: rnd(60, W-60),
         y: rnd(80, H-60),
         r: 18,
@@ -1574,6 +1898,9 @@
   }
 
   function spawnDoge(){
+    // Skip in multiplayer mode - server will handle this
+    if (isMultiplayerGame) return;
+    
     const side = Math.random() < 0.5 ? 'L' : 'R';
     doge = {
       x: side==='L' ? -60 : W+60,
@@ -1590,9 +1917,13 @@
   }
 
   function spawnLasers(){
+    // Skip in multiplayer mode - server will handle this
+    if (isMultiplayerGame) return;
+    
     lasers.length = 0;
     for (let i = 0; i < CONFIG.laserCount; i++) {
       lasers.push({
+        id: Math.random().toString(36).substring(2, 15),
         x: rnd(40, W-40),
         y: rnd(90, H-40),
         r: 10,
@@ -1606,6 +1937,9 @@
   }
   
   function spawnTornado() {
+    // Skip in multiplayer mode - server will handle this
+    if (isMultiplayerGame) return;
+    
     tornado = {
       x: rnd(W * 0.25, W * 0.75),
       y: rnd(H * 0.25, H * 0.75),
@@ -1621,7 +1955,7 @@
     // Create tornado particles
     for (let i = 0; i < 30; i++) {
       tornado.particles.push({
-                x: tornado.x + rnd(-tornado.r, tornado.r),
+        x: tornado.x + rnd(-tornado.r, tornado.r),
         y: tornado.y + rnd(-tornado.r, tornado.r),
         size: rnd(4, 10),
         angle: rnd(0, Math.PI * 2),
@@ -1632,8 +1966,12 @@
   }
   
   function spawnPowerUp() {
+    // Skip in multiplayer mode - server will handle this
+    if (isMultiplayerGame) return;
+    
     const type = POWERUPS[Math.floor(Math.random() * POWERUPS.length)];
     const powerUp = {
+      id: Math.random().toString(36).substring(2, 15),
       x: rnd(CONFIG.boundsPadding * 2, W - CONFIG.boundsPadding * 2),
       y: rnd(CONFIG.boundsPadding * 2 + 40, H - CONFIG.boundsPadding * 2),
       r: 15,
@@ -1834,7 +2172,7 @@
       const force = p.superMeow ? CONFIG.meowKnockForce * 1.5 : CONFIG.meowKnockForce;
       
       // Send meow action to server
-      if (socket && socket.connected) {
+      if (socket && socket.connected && isMultiplayerGame) {
         socket.emit('player-action', {
           action: 'meow',
           position: { x: p.x, y: p.y },
@@ -1879,8 +2217,23 @@
         }
       }
       
-      // Super meow also affects objects
-      if (p.superMeow) {
+      // Apply effect to remote players (in multiplayer mode)
+      if (isMultiplayerGame) {
+        for (const id in remotePlayers) {
+          const remotePlayer = remotePlayers[id];
+          if (remotePlayer.hasShield) continue; // Shield blocks meow
+          
+          const dx = remotePlayer.x - p.x, dy = remotePlayer.y - p.y;
+          const d = Math.hypot(dx,dy);
+          if (d > 0 && d <= range){
+            // Visual effect only - server handles actual physics
+            createMeowParticles(remotePlayer.x, remotePlayer.y, remotePlayer.color || '#ffffff');
+          }
+        }
+      }
+      
+      // Super meow also affects objects - only in single player mode, server handles in multiplayer
+      if (p.superMeow && !isMultiplayerGame) {
         // Push treats away
         for (const t of treats) {
           const dx = t.x - p.x, dy = t.y - p.y;
@@ -1949,8 +2302,8 @@
     p.y += p.vy;
     edgeBounce(p, p.r);
     
-    // Treat magnet power-up
-    if (p.treatMagnet) {
+    // Treat magnet power-up - only in single player, server handles in multiplayer
+    if (p.treatMagnet && !isMultiplayerGame) {
       for (const t of treats) {
         const dx = p.x - t.x;
         const dy = p.y - t.y;
@@ -1964,7 +2317,7 @@
     }
     
     // Send position updates to server
-    if (socket && socket.connected && p.id === 0) { // Only for local player
+    if (socket && socket.connected && isMultiplayerGame && p.id === 0) { // Only for local player
       // Send every few frames to reduce network traffic
       if (Math.random() < 0.1) { // 10% chance each frame
         socket.emit('player-update', {
@@ -1980,23 +2333,26 @@
   }
 
   function updateTreats(){
-    // Update treat positions with velocity
-    for (const t of treats) {
-      if (t.vx !== 0 || t.vy !== 0) {
-        t.x += t.vx;
-        t.y += t.vy;
-        t.vx *= 0.95;
-        t.vy *= 0.95;
-        
-        // Stop very small movements
-        if (Math.abs(t.vx) < 0.1) t.vx = 0;
-        if (Math.abs(t.vy) < 0.1) t.vy = 0;
-        
-        // Keep treats in bounds
-        if (t.x < CONFIG.boundsPadding) { t.x = CONFIG.boundsPadding; t.vx *= -0.5; }
-        if (t.x > W - CONFIG.boundsPadding) { t.x = W - CONFIG.boundsPadding; t.vx *= -0.5; }
-        if (t.y < CONFIG.boundsPadding + 40) { t.y = CONFIG.boundsPadding + 40; t.vy *= -0.5; }
-        if (t.y > H - CONFIG.boundsPadding) { t.y = H - CONFIG.boundsPadding; t.vy *= -0.5; }
+    // Skip treat movement in multiplayer mode - server handles this
+    if (!isMultiplayerGame) {
+      // Update treat positions with velocity
+      for (const t of treats) {
+        if (t.vx !== 0 || t.vy !== 0) {
+          t.x += t.vx;
+          t.y += t.vy;
+          t.vx *= 0.95;
+          t.vy *= 0.95;
+          
+          // Stop very small movements
+          if (Math.abs(t.vx) < 0.1) t.vx = 0;
+          if (Math.abs(t.vy) < 0.1) t.vy = 0;
+          
+          // Keep treats in bounds
+          if (t.x < CONFIG.boundsPadding) { t.x = CONFIG.boundsPadding; t.vx *= -0.5; }
+          if (t.x > W - CONFIG.boundsPadding) { t.x = W - CONFIG.boundsPadding; t.vx *= -0.5; }
+          if (t.y < CONFIG.boundsPadding + 40) { t.y = CONFIG.boundsPadding + 40; t.vy *= -0.5; }
+          if (t.y > H - CONFIG.boundsPadding) { t.y = H - CONFIG.boundsPadding; t.vy *= -0.5; }
+        }
       }
     }
     
@@ -2012,7 +2368,7 @@
           updateScoreUI();
           
           // Send treat collection to server
-          if (socket && socket.connected && p.id === 0) { // Only for local player
+          if (socket && socket.connected && isMultiplayerGame && p.id === 0) { // Only for local player
             socket.emit('player-action', {
               action: 'collect-treat',
               treatId: t.id,
@@ -2020,7 +2376,7 @@
             });
           }
           
-          treats.splice(i,1);
+          treats.splice(i, 1);
           
           // Create particle effect when collecting treats
           createMeowParticles(t.x, t.y, "#5dffea");
@@ -2033,11 +2389,13 @@
       }
     }
     
-    // Respawn timer
-    const now = performance.now();
-    if (now >= nextTreatAt){
-      nextTreatAt = now + CONFIG.treatRespawnMs;
-      if (treats.length < CONFIG.treatsOnField) spawnTreat();
+    // Respawn timer - skip in multiplayer
+    if (!isMultiplayerGame) {
+      const now = performance.now();
+      if (now >= nextTreatAt){
+        nextTreatAt = now + CONFIG.treatRespawnMs;
+        if (treats.length < CONFIG.treatsOnField) spawnTreat();
+      }
     }
   }
   
@@ -2047,7 +2405,7 @@
     updateStatus(`🎉 ${p.emoji} ${p.name} WINS! Press R to restart.`);
     
     // Send game end to server
-    if (socket && socket.connected && p.id === 0) {
+    if (socket && socket.connected && isMultiplayerGame && p.id === 0) {
       socket.emit('player-action', {
         action: 'game-end',
         winner: p.name
@@ -2056,6 +2414,9 @@
   }
 
   function updateRoombas(){
+    // Skip in multiplayer mode - server handles this
+    if (isMultiplayerGame) return;
+    
     for (const r of roombas){
       r.x += r.vx; r.y += r.vy;
       if (r.x < 40 || r.x > W-40) r.vx *= -1;
@@ -2080,6 +2441,9 @@
   }
 
   function updateDoge(){
+    // Skip in multiplayer mode - server handles this
+    if (isMultiplayerGame) return;
+    
     const now = performance.now();
     if (!doge && now >= nextDogeAt){ nextDogeAt = now + CONFIG.dogeEveryMs; spawnDoge(); }
     if (doge){
@@ -2186,6 +2550,9 @@
   }
 
   function updateLasers(){
+    // Skip in multiplayer mode - server handles this
+    if (isMultiplayerGame) return;
+    
     for (let i = 0; i < lasers.length; i++) {
       const laser = lasers[i];
       laser.t += 1;
@@ -2251,6 +2618,9 @@
   
   // Update tornado
   function updateTornado() {
+    // Skip in multiplayer mode - server handles this
+    if (isMultiplayerGame) return;
+    
     if (!tornado) return;
     
     tornado.x += tornado.vx;
@@ -2318,6 +2688,7 @@
   }
   
   function updatePowerUps() {
+    // Skip power-up spawning in multiplayer mode - server handles this
     const now = performance.now();
     
     // Check for power-up collisions
@@ -2360,9 +2731,10 @@
           updateStatus(`${player.name} got ${p.type.name}!`);
           
           // Send powerup collection to server (for player 0 only - local player)
-          if (socket && socket.connected && player.id === 0) {
+          if (socket && socket.connected && isMultiplayerGame && player.id === 0) {
             socket.emit('player-action', {
               action: 'powerup',
+              powerUpId: p.id,
               type: p.type.name
             });
           }
@@ -2372,13 +2744,16 @@
       }
     }
     
-    // Chance to spawn a new power-up
-    if (Math.random() < CONFIG.powerUpChance && powerUps.length < 3) {
+    // Chance to spawn a new power-up - only in single player
+    if (!isMultiplayerGame && Math.random() < CONFIG.powerUpChance && powerUps.length < 3) {
       spawnPowerUp();
     }
   }
   
   function updateWeather() {
+    // Skip in multiplayer mode - server handles this
+    if (isMultiplayerGame) return;
+    
     const now = performance.now();
     
     // End current weather event if time's up
@@ -2400,6 +2775,9 @@
   }
   
   function updateSecretSauce() {
+    // Skip in multiplayer mode - server handles this
+    if (isMultiplayerGame) return;
+    
     const now = performance.now();
     
     // Update countdown timer
@@ -2432,14 +2810,6 @@
       for (let i = 0; i < 3; i++) spawnPowerUp();
       if (Math.random() < 0.5) spawnDoge();
       for (let i = 0; i < 3; i++) spawnTreat();
-      
-      // Send chaos mode activation to server
-      if (socket && socket.connected) {
-        socket.emit('player-action', {
-          action: 'chaos',
-          active: true
-        });
-      }
     }
   }
 
@@ -2456,22 +2826,28 @@
     updatePowerUpsUI();
     updateCatImagePositions();
     
-    // DEBUGGING: Add this to help track issues
-    if (CONFIG.debugMode && Math.random() < 0.05) updateDebugInfo(); // Update debug info occasionally
+    // DEBUGGING: Update debug info occasionally
+    if (CONFIG.debugMode && Math.random() < 0.05) updateDebugInfo();
 
     while (acc >= dt){
       if (!paused && !winner){
         for (const p of players){ handleInput(p); updatePlayer(p); }
         updateTreats();
-        updateRoombas();
-        updateDoge();
-        updateLasers();
+        
+        // Only run these updates in single player or if specifically allowed in multiplayer
+        if (!isMultiplayerGame) {
+          updateRoombas();
+          updateDoge();
+          updateLasers();
+          updateTornado();
+          updateWeather();
+          updateSecretSauce();
+        }
+        
+        // These always run regardless of game mode
         updateMeowBursts();
         updateParticles();
         updatePowerUps();
-        updateTornado();
-        updateWeather();
-        updateSecretSauce();
       }
       acc -= dt;
     }
