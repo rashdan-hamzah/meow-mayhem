@@ -60,11 +60,358 @@
     object-fit: cover;
     border-radius: 50%;
   }
+  
+  /* Multiplayer Lobby Styles */
+  .screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #0e0f13;
+    z-index: 100;
+    overflow: auto;
+  }
+
+  /* Lobby Screen */
+  .lobby-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 40px 20px;
+    text-align: center;
+  }
+
+  .lobby-container h1 {
+    font-size: 48px;
+    margin-bottom: 40px;
+  }
+
+  .join-create {
+    display: flex;
+    gap: 40px;
+    justify-content: center;
+    align-items: stretch;
+  }
+
+  .create-game, .join-game {
+    flex: 1;
+    background: #1a1e2a;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    color: #666;
+    font-weight: bold;
+  }
+
+  .player-customization {
+    margin: 20px 0;
+    text-align: left;
+  }
+
+  .player-customization label {
+    display: block;
+    margin: 12px 0 6px;
+    font-weight: 600;
+  }
+
+  .player-customization input {
+    width: 100%;
+    padding: 10px;
+    border-radius: 8px;
+    background: #2c2f3a;
+    border: 1px solid #3a3f52;
+    color: white;
+    font-size: 16px;
+  }
+
+  .cat-selection {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+  }
+
+  .cat-option {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: #2c2f3a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .cat-option:hover {
+    transform: scale(1.1);
+    background: #3a3f52;
+  }
+
+  .cat-option.selected {
+    background: #5a5f72;
+    box-shadow: 0 0 0 3px #8f95b0;
+  }
+
+  .btn {
+    display: inline-block;
+    padding: 12px 24px;
+    border-radius: 12px;
+    background: #2c2f3a;
+    color: #fff;
+    font-weight: 800;
+    letter-spacing: .3px;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0,0,0,.35);
+    border: none;
+    font-size: 16px;
+    margin-top: 20px;
+    transition: all 0.2s;
+  }
+
+  .btn:hover {
+    background: #3a3f52;
+    transform: translateY(-2px);
+  }
+
+  .btn:active {
+    transform: translateY(1px);
+  }
+
+  /* Waiting Room */
+  .waiting-container {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 40px 20px;
+    text-align: center;
+  }
+
+  .room-info {
+    background: #1a1e2a;
+    border-radius: 16px;
+    padding: 24px;
+    margin: 30px 0;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+  }
+
+  .room-info h2 {
+    font-size: 32px;
+    margin: 0 0 10px;
+  }
+
+  #roomCodeDisplay {
+    font-size: 36px;
+    background: #2c2f3a;
+    padding: 8px 16px;
+    border-radius: 12px;
+    margin: 0 5px;
+    letter-spacing: 2px;
+  }
+
+  .players-list {
+    background: #1a1e2a;
+    border-radius: 16px;
+    padding: 20px;
+    margin: 30px 0;
+    text-align: left;
+  }
+
+  .players-list h3 {
+    margin-top: 0;
+    font-size: 20px;
+    text-align: center;
+  }
+
+  #playersList {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  #playersList li {
+    padding: 12px 16px;
+    border-radius: 8px;
+    background: #2c2f3a;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+  }
+
+  .player-cat {
+    font-size: 24px;
+    margin-right: 12px;
+  }
+
+  .player-name {
+    flex-grow: 1;
+    font-weight: bold;
+  }
+
+  .player-you {
+    font-size: 12px;
+    color: #9ad1ff;
+    margin-left: 8px;
+  }
+
+  .player-host {
+    font-size: 18px;
+    margin-left: 8px;
+  }
+
+  #hostControls {
+    margin-top: 30px;
+  }
+
+  #startGameBtn {
+    background: #ff9aa2;
+    color: #2a1a1d;
+    font-size: 18px;
+    padding: 14px 36px;
+  }
+
+  #startGameBtn:hover {
+    background: #ffb0b6;
+  }
+
+  #waitingMessage {
+    color: #888;
+    font-style: italic;
+  }
+
+  .remote-cat {
+    opacity: 0.8; /* Make remote players slightly transparent */
+  }
+
+  /* Notification System */
+  #notificationArea {
+    position: fixed;
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    pointer-events: none;
+  }
+
+  .notification {
+    background: rgba(0,0,0,0.7);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 30px;
+    margin-bottom: 10px;
+    backdrop-filter: blur(4px);
+    animation: fadeInOut 3s forwards;
+  }
+
+  @keyframes fadeInOut {
+    0% { opacity: 0; transform: translateY(-20px); }
+    10% { opacity: 1; transform: translateY(0); }
+    80% { opacity: 1; }
+    100% { opacity: 0; transform: translateY(-20px); }
+  }
+
+  /* Mobile Responsive Adjustments */
+  @media (max-width: 800px) {
+    .join-create {
+      flex-direction: column;
+      gap: 20px;
+    }
+    
+    .divider {
+      padding: 10px 0;
+    }
+    
+    .lobby-container h1 {
+      font-size: 36px;
+    }
+  }
 </style>
 <!-- Socket.io client library -->
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 </head>
 <body>
+<!-- Lobby Screen -->
+<div id="lobbyScreen" class="screen">
+  <div class="lobby-container">
+    <h1>Meow Mayhem 😼</h1>
+    
+    <div class="join-create">
+      <div class="create-game">
+        <h2>Create New Game</h2>
+        <div class="player-customization">
+          <label>Your Name:</label>
+          <input type="text" id="hostPlayerName" maxlength="15" value="Host Cat">
+          
+          <label>Choose Cat:</label>
+          <div class="cat-selection">
+            <div class="cat-option selected" data-index="0">😾</div>
+            <div class="cat-option" data-index="1">🌈</div>
+            <div class="cat-option" data-index="2">🎹</div>
+            <div class="cat-option" data-index="3">🥁</div>
+            <div class="cat-option" data-index="4">👹</div>
+          </div>
+        </div>
+        <button id="createGameBtn" class="btn">Create Game</button>
+      </div>
+      
+      <div class="divider">OR</div>
+      
+      <div class="join-game">
+        <h2>Join Game</h2>
+        <div class="player-customization">
+          <label>Your Name:</label>
+          <input type="text" id="guestPlayerName" maxlength="15" value="Guest Cat">
+          
+          <label>Choose Cat:</label>
+          <div class="cat-selection">
+            <div class="cat-option selected" data-index="0">😾</div>
+            <div class="cat-option" data-index="1">🌈</div>
+            <div class="cat-option" data-index="2">🎹</div>
+            <div class="cat-option" data-index="3">🥁</div>
+            <div class="cat-option" data-index="4">👹</div>
+          </div>
+          
+          <label>Room Code:</label>
+          <input type="text" id="roomCodeInput" maxlength="6" placeholder="ABCD12">
+        </div>
+        <button id="joinGameBtn" class="btn">Join Game</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Waiting Room Screen -->
+<div id="waitingRoom" class="screen" style="display:none;">
+  <div class="waiting-container">
+    <h1>Waiting for Players</h1>
+    
+    <div class="room-info">
+      <h2>Room Code: <span id="roomCodeDisplay">ABCD12</span></h2>
+      <p>Share this code with friends to join!</p>
+    </div>
+    
+    <div class="players-list">
+      <h3>Players:</h3>
+      <ul id="playersList">
+        <!-- Players will be added here dynamically -->
+      </ul>
+    </div>
+    
+    <div id="hostControls" style="display:none;">
+      <button id="startGameBtn" class="btn">Start Game</button>
+    </div>
+    
+    <p id="waitingMessage">Waiting for host to start the game...</p>
+  </div>
+</div>
+
 <canvas id="game"></canvas>
 <div id="ui">
   <div class="topbar">
@@ -121,78 +468,508 @@
   };
 
   // ======== SOCKET.IO MULTIPLAYER ========
-  const socket = io('https://meow-mayhem-server.onrender.com');
-  let socketConnected = false;
-  let remotePlayersMap = {}; // To store remote players by their server-assigned ID
+  let socket;
+  let roomCode = '';
+  let playerId = '';
+  let isHost = false;
+  let remotePlayers = {};
+  let currentScreen = 'lobby'; // 'lobby', 'waiting', 'game'
+  let hostId = '';
 
-  socket.on('connect', () => {
-    console.log('Connected to game server!');
-    socketConnected = true;
+  // Initialize Socket.io and UI events
+  function initializeMultiplayer() {
+    socket = io('https://meow-mayhem-server.onrender.com');
     
-    // Join a game room when connected
-    socket.emit('join-game', 'room-1');
+    // Setup event listeners
+    setupSocketEvents();
+    setupUIEvents();
     
-    updateStatus('Connected to multiplayer server!');
-  });
+    // Show lobby screen
+    showScreen('lobbyScreen');
+    
+    // Create notification area
+    createNotificationArea();
+  }
 
-  socket.on('disconnect', () => {
-    console.log('Disconnected from game server');
-    socketConnected = false;
-    updateStatus('Disconnected from server');
-  });
-
-  // Handle other players joining
-  socket.on('player-joined', (playerId) => {
-    console.log(`Player ${playerId} joined the game`);
-    // Store remote player ID for later use
-    if (!remotePlayersMap[playerId]) {
-      remotePlayersMap[playerId] = {
+  function setupSocketEvents() {
+    // Connection events
+    socket.on('connect', () => {
+      console.log('Connected to game server!');
+    });
+    
+    socket.on('disconnect', () => {
+      console.log('Disconnected from server');
+      // Show disconnect message or return to lobby
+      if (currentScreen === 'game') {
+        showNotification('Disconnected from server');
+        setTimeout(() => {
+          showScreen('lobbyScreen');
+          currentScreen = 'lobby';
+        }, 3000);
+      }
+    });
+    
+    // Room creation and joining
+    socket.on('room-created', (data) => {
+      roomCode = data.roomCode;
+      playerId = data.playerId;
+      isHost = true;
+      hostId = playerId;
+      
+      // Update UI
+      document.getElementById('roomCodeDisplay').textContent = roomCode;
+      document.getElementById('hostControls').style.display = 'block';
+      document.getElementById('waitingMessage').style.display = 'none';
+      
+      // Update players list
+      updatePlayersList([{
         id: playerId,
+        name: document.getElementById('hostPlayerName').value,
+        skinIndex: parseInt(document.querySelector('#lobbyScreen .create-game .cat-selection .selected').dataset.index)
+      }]);
+      
+      // Show waiting room
+      showScreen('waitingRoom');
+      currentScreen = 'waiting';
+    });
+    
+    socket.on('room-joined', (data) => {
+      roomCode = data.roomCode;
+      playerId = data.playerId;
+      isHost = data.isHost;
+      hostId = data.players ? Object.keys(data.players).find(id => data.players[id].isHost) : '';
+      
+      // Update UI
+      document.getElementById('roomCodeDisplay').textContent = roomCode;
+      document.getElementById('hostControls').style.display = isHost ? 'block' : 'none';
+      document.getElementById('waitingMessage').style.display = isHost ? 'none' : 'block';
+      
+      // Update players list with all existing players
+      const playersList = Object.values(data.players);
+      updatePlayersList(playersList);
+      
+      // Show waiting room
+      showScreen('waitingRoom');
+      currentScreen = 'waiting';
+    });
+    
+    socket.on('join-error', (data) => {
+      showNotification('Error: ' + data.message);
+    });
+    
+    // Player events
+    socket.on('player-joined', (data) => {
+      // Add player to list
+      addPlayerToList(data);
+      
+      // Show notification
+      showNotification(`${data.name} joined the game!`);
+    });
+    
+    socket.on('player-left', (playerId) => {
+      // Remove player from list
+      removePlayerFromList(playerId);
+      
+      // Remove from remote players if in game
+      if (currentScreen === 'game' && remotePlayers[playerId]) {
+        // Remove player's visual representation
+        if (remotePlayers[playerId].imgElement) {
+          remotePlayers[playerId].imgElement.remove();
+        }
+        delete remotePlayers[playerId];
+        
+        showNotification('A player left the game');
+      }
+    });
+    
+    socket.on('new-host', (newHostId) => {
+      hostId = newHostId;
+      isHost = (newHostId === playerId);
+      
+      if (currentScreen === 'waiting') {
+        document.getElementById('hostControls').style.display = isHost ? 'block' : 'none';
+        document.getElementById('waitingMessage').style.display = isHost ? 'none' : 'block';
+      }
+      
+      if (isHost) {
+        showNotification('You are now the host!');
+      }
+      
+      // Update the host crown in the player list
+      updateHostDisplay(newHostId);
+    });
+    
+    // Game events
+    socket.on('game-started', (gameState) => {
+      // Initialize game with received state
+      initializeGameWithState(gameState);
+      
+      // Show game screen and hide waiting room
+      showScreen('game');
+      currentScreen = 'game';
+      
+      showNotification('Game started!');
+    });
+    
+    socket.on('player-updated', (data) => {
+      // Update remote player position and state
+      updateRemotePlayer(data);
+    });
+    
+    socket.on('player-action', (data) => {
+      // Handle remote player actions
+      handleRemotePlayerAction(data);
+    });
+    
+    socket.on('treat-spawned', (treatData) => {
+      // Add new treat to game
+      spawnTreatFromData(treatData);
+    });
+  }
+
+  function setupUIEvents() {
+    // Create game button
+    document.getElementById('createGameBtn').addEventListener('click', () => {
+      const playerName = document.getElementById('hostPlayerName').value.trim();
+      if (!playerName) {
+        showNotification('Please enter your name');
+        return;
+      }
+      
+      const skinIndex = parseInt(document.querySelector('#lobbyScreen .create-game .cat-selection .selected').dataset.index);
+      
+      socket.emit('create-room');
+    });
+    
+    // Join game button
+    document.getElementById('joinGameBtn').addEventListener('click', () => {
+      const playerName = document.getElementById('guestPlayerName').value.trim();
+      const roomCodeValue = document.getElementById('roomCodeInput').value.trim().toUpperCase();
+      
+      if (!playerName) {
+        showNotification('Please enter your name');
+        return;
+      }
+      
+      if (!roomCodeValue || roomCodeValue.length !== 6) {
+        showNotification('Please enter a valid room code');
+        return;
+      }
+      
+      const skinIndex = parseInt(document.querySelector('#lobbyScreen .join-game .cat-selection .selected').dataset.index);
+      
+      socket.emit('join-room', {
+        roomCode: roomCodeValue,
+        playerName: playerName,
+        skinIndex: skinIndex
+      });
+    });
+    
+    // Start game button
+    document.getElementById('startGameBtn').addEventListener('click', () => {
+      if (isHost) {
+        socket.emit('start-game');
+      }
+    });
+    
+    // Cat selection
+    document.querySelectorAll('.cat-option').forEach(option => {
+      option.addEventListener('click', (e) => {
+        // Remove selected class from siblings
+        e.target.parentElement.querySelectorAll('.cat-option').forEach(opt => {
+          opt.classList.remove('selected');
+        });
+        
+        // Add selected class to clicked option
+        e.target.classList.add('selected');
+      });
+    });
+  }
+
+  // Helper UI functions
+  function showScreen(screenId) {
+    // Hide all screens
+    document.querySelectorAll('.screen').forEach(screen => {
+      screen.style.display = 'none';
+    });
+    
+    // Show game canvas and UI if game screen
+    document.getElementById('game').style.display = screenId === 'game' ? 'block' : 'none';
+    document.getElementById('ui').style.display = screenId === 'game' ? 'block' : 'none';
+    
+    // Show requested screen if not game
+    if (screenId !== 'game') {
+      document.getElementById(screenId).style.display = 'block';
+    }
+  }
+
+  function updatePlayersList(players) {
+    const list = document.getElementById('playersList');
+    list.innerHTML = '';
+    
+    players.forEach(player => {
+      addPlayerToList(player);
+    });
+  }
+
+  function addPlayerToList(player) {
+    const list = document.getElementById('playersList');
+    const item = document.createElement('li');
+    item.dataset.playerId = player.id;
+    
+    // Get cat emoji based on skin index
+    const catEmojis = ['😾', '🌈', '🎹', '🥁', '👹'];
+    const catEmoji = catEmojis[player.skinIndex] || catEmojis[0];
+    
+    item.innerHTML = `
+      <span class="player-cat">${catEmoji}</span>
+      <span class="player-name">${player.name}</span>
+      ${player.id === playerId ? ' <span class="player-you">(You)</span>' : ''}
+      ${player.id === hostId ? ' <span class="player-host">👑</span>' : ''}
+    `;
+    
+    list.appendChild(item);
+  }
+
+  function removePlayerFromList(playerId) {
+    const item = document.querySelector(`#playersList li[data-player-id="${playerId}"]`);
+    if (item) item.remove();
+  }
+
+  function updateHostDisplay(newHostId) {
+    // Remove all host crowns
+    document.querySelectorAll('.player-host').forEach(el => el.remove());
+    
+    // Add crown to new host
+    const hostItem = document.querySelector(`#playersList li[data-player-id="${newHostId}"]`);
+    if (hostItem) {
+      const hostSpan = document.createElement('span');
+      hostSpan.className = 'player-host';
+      hostSpan.textContent = ' 👑';
+      hostItem.appendChild(hostSpan);
+    }
+  }
+
+  function createNotificationArea() {
+    const notificationArea = document.createElement('div');
+    notificationArea.id = 'notificationArea';
+    document.body.appendChild(notificationArea);
+  }
+
+  function showNotification(message) {
+    const notificationArea = document.getElementById('notificationArea');
+    
+    if (!notificationArea) return;
+    
+    const notification = document.createElement('div');
+    notification.className = 'notification';
+    notification.textContent = message;
+    
+    notificationArea.appendChild(notification);
+    
+    // Remove after animation completes
+    setTimeout(() => {
+      notification.remove();
+    }, 3000);
+  }
+
+  // Game integration functions
+  function initializeGameWithState(gameState) {
+    // Reset game state
+    resetGame();
+    
+    // Add treats from server data
+    treats.length = 0;
+    if (gameState && gameState.treats) {
+      gameState.treats.forEach(treatData => {
+        spawnTreatFromData(treatData);
+      });
+    }
+    
+    // Add roombas from server data
+    roombas.length = 0;
+    if (gameState && gameState.roombas) {
+      gameState.roombas.forEach(roombaData => {
+        spawnRoombaFromData(roombaData);
+      });
+    }
+    
+    // Setup game world
+    if (CONFIG.laserActive) spawnLasers();
+    
+    // Start game loop
+    running = true;
+    last = performance.now();
+    requestAnimationFrame(loop);
+  }
+
+  function spawnTreatFromData(treatData) {
+    const t = { 
+      id: treatData.id,
+      x: treatData.x,
+      y: treatData.y,
+      r: CONFIG.treatRadius, 
+      emoji:'🐟',
+      vx: 0,
+      vy: 0
+    };
+    treats.push(t);
+  }
+
+  function spawnRoombaFromData(roombaData) {
+    const r = {
+      id: roombaData.id,
+      x: roombaData.x,
+      y: roombaData.y,
+      r: 18,
+      vx: roombaData.vx,
+      vy: roombaData.vy,
+      emoji:'🧹'
+    };
+    roombas.push(r);
+  }
+
+  // Update remote player
+  function updateRemotePlayer(data) {
+    const id = data.id;
+    
+    // Create remote player if doesn't exist
+    if (!remotePlayers[id]) {
+      remotePlayers[id] = {
+        id: id,
+        x: data.position ? data.position.x : W/2,
+        y: data.position ? data.position.y : H/2,
+        vx: data.position ? data.position.vx : 0,
+        vy: data.position ? data.position.vy : 0,
+        score: data.score || 0,
+        r: CONFIG.playerRadius,
+        skinIndex: data.skinIndex || 0,
         isRemote: true
       };
+      
+      // Create visual representation
+      createRemotePlayerVisual(remotePlayers[id]);
+    } else {
+      // Update existing player
+      if (data.position) {
+        remotePlayers[id].x = data.position.x;
+        remotePlayers[id].y = data.position.y;
+        remotePlayers[id].vx = data.position.vx || remotePlayers[id].vx;
+        remotePlayers[id].vy = data.position.vy || remotePlayers[id].vy;
+      }
+      
+      if (data.score !== undefined) {
+        remotePlayers[id].score = data.score;
+        updateRemotePlayerScore(id, data.score);
+      }
     }
-  });
-
-  // Handle remote player actions
-  socket.on('player-action', (data) => {
-    // Handle remote player movements and actions
-    if (data.action === 'move') {
-      handleRemotePlayerMove(data);
-    } else if (data.action === 'meow') {
-      handleRemotePlayerMeow(data);
-    }
-  });
-
-  // Handle remote player movement
-  function handleRemotePlayerMove(data) {
-    // Get position data from remote player
-    const remotePlayerData = data.position;
-    
-    // Find or create a representation for this remote player
-    // You would implement this based on how you want to show remote players
-    console.log('Remote player moved:', data);
-    
-    // For now, just log it - full implementation would update player positions
   }
 
-  // Handle remote player meow action
-  function handleRemotePlayerMeow(data) {
-    // Get meow data from remote player
-    console.log('Remote player meowed:', data);
+  function createRemotePlayerVisual(player) {
+    // Create cat image for remote player
+    const img = document.createElement('img');
+    img.className = 'cat-img remote-cat';
+    img.src = CAT_GIFS[player.skinIndex || 0];
+    img.id = `remote-cat-${player.id}`;
+    img.style.width = `${player.r * 2}px`;
+    img.style.height = `${player.r * 2}px`;
+    catImagesContainer.appendChild(img);
     
-    // You could create a meow effect at the remote player's position
-    // For now, just log it - full implementation would show the meow effect
+    player.imgElement = img;
+    
+    // Also add to score display
+    const scoresEl = document.getElementById('scores');
+    const span = document.createElement('span');
+    span.className = `pchip p${(player.skinIndex % 5) + 1}`;
+    span.id = `score-${player.id}`;
+    span.textContent = `${SKINS[player.skinIndex].emoji} Remote: ${player.score}`;
+    scoresEl.appendChild(span);
   }
 
-  // Function to send our player actions to the server
-  function sendPlayerAction(actionType, actionData) {
-    if (!socketConnected) return;
+  function updateRemotePlayerScore(id, score) {
+    const scoreEl = document.getElementById(`score-${id}`);
+    if (scoreEl && remotePlayers[id]) {
+      const skinIndex = remotePlayers[id].skinIndex || 0;
+      scoreEl.textContent = `${SKINS[skinIndex].emoji} Remote: ${score}`;
+    }
+  }
+
+  function handleRemotePlayerAction(data) {
+    if (!data.id || !data.action) return;
     
-    socket.emit('player-action', {
-      roomId: 'room-1',
-      action: actionType,
-      ...actionData
+    switch (data.action) {
+      case 'meow':
+        createRemoteMeowEffect(data);
+        break;
+        
+      case 'collect-treat':
+        // Handle remote player collecting treats
+        for (let i = 0; i < treats.length; i++) {
+          if (treats[i].id === data.treatId) {
+            treats.splice(i, 1);
+            
+            // Visual effect for remote collection
+            createMeowParticles(
+              remotePlayers[data.id] ? remotePlayers[data.id].x : W/2,
+              remotePlayers[data.id] ? remotePlayers[data.id].y : H/2,
+              "#5dffea"
+            );
+            break;
+          }
+        }
+        break;
+    }
+  }
+
+  function createRemoteMeowEffect(data) {
+    const player = remotePlayers[data.id];
+    if (!player) return;
+    
+    const now = performance.now();
+    const position = data.position || { x: player.x, y: player.y };
+    const superMeow = data.superMeow || false;
+    
+    // Create meow burst
+    meowBursts.push({ 
+      x: position.x, 
+      y: position.y, 
+      r: 10, 
+      maxR: superMeow ? CONFIG.meowKnockRange * 1.5 : CONFIG.meowKnockRange, 
+      born: now, 
+      life: superMeow ? 420 : 320, 
+      owner: player, 
+      superMeow: superMeow 
     });
+    
+    // Create particles
+    createMeowParticles(
+      position.x,
+      position.y,
+      player.color || '#ffffff',
+      superMeow ? CONFIG.meowParticles * 2 : CONFIG.meowParticles
+    );
+    
+    // Apply effect to local player if in range
+    if (players.length > 0) {
+      const localPlayer = players[0]; // Player 0 is the local player
+      const dx = localPlayer.x - position.x;
+      const dy = localPlayer.y - position.y;
+      const d = Math.hypot(dx, dy);
+      const range = superMeow ? CONFIG.meowKnockRange * 1.5 : CONFIG.meowKnockRange;
+      
+      if (d > 0 && d <= range && !localPlayer.hasShield) {
+        const nx = dx/d, ny = dy/d;
+        const force = superMeow ? CONFIG.meowKnockForce * 1.5 : CONFIG.meowKnockForce;
+        const adjustedForce = force * (1 - d/range + 0.2);
+        
+        localPlayer.vx += nx * adjustedForce;
+        localPlayer.vy += ny * adjustedForce;
+        
+        // Mark player as being meowed
+        localPlayer.isBeingMeowed = true;
+        localPlayer.meowEffectUntil = now + 800;
+      }
+    }
   }
 
   // Cat GIFs for the players
@@ -382,6 +1159,15 @@
         }
       }
     });
+    
+    // Update remote players
+    for (const id in remotePlayers) {
+      const player = remotePlayers[id];
+      if (player.imgElement) {
+        player.imgElement.style.left = `${player.x}px`;
+        player.imgElement.style.top = `${player.y}px`;
+      }
+    }
   }
 
   function spawnPlayers(n=CONFIG.maxPlayers){
@@ -431,6 +1217,7 @@
 
   function spawnTreat(){
     const t = { 
+      id: Math.random().toString(36).substring(2, 15),
       x: rnd(CONFIG.boundsPadding, W-CONFIG.boundsPadding),
       y: rnd(CONFIG.boundsPadding+40, H-CONFIG.boundsPadding),
       r: CONFIG.treatRadius, 
@@ -596,6 +1383,10 @@
 
   function start(){
     if (running) return;
+    
+    // If we're in the lobby or waiting room, don't start local game
+    if (currentScreen === 'lobby' || currentScreen === 'waiting') return;
+    
     document.getElementById('center').style.display='none';
     document.getElementById('timer').style.display = 'block';
     running = true;
@@ -688,6 +1479,9 @@
     // Skip input handling if player is being eaten
     if (p.beingEaten) return;
     
+    // Skip if not local player (player 0)
+    if (p.id !== 0) return;
+    
     const now = performance.now();
     let up = keys.has(p.controls.up) || keys.has(p.controls.up.toUpperCase());
     let down = keys.has(p.controls.down) || keys.has(p.controls.down.toUpperCase());
@@ -710,12 +1504,11 @@
       const range = p.superMeow ? CONFIG.meowKnockRange * 1.5 : CONFIG.meowKnockRange;
       const force = p.superMeow ? CONFIG.meowKnockForce * 1.5 : CONFIG.meowKnockForce;
       
-      // Send meow action to server (for player 0 only - local player)
-      if (socketConnected && p.id === 0) {
-        sendPlayerAction('meow', {
+      // Send meow action to server
+      if (socket && socket.connected) {
+        socket.emit('player-action', {
+          action: 'meow',
           position: { x: p.x, y: p.y },
-          range: range,
-          force: force,
           superMeow: p.superMeow
         });
       }
@@ -748,7 +1541,7 @@
           other.vx += nx * adjustedForce;
           other.vy += ny * adjustedForce;
           
-          // Mark player as being meowed for visual effects
+                    // Mark player as being meowed for visual effects
           other.isBeingMeowed = true;
           other.meowEffectUntil = now + 800;
           
@@ -842,10 +1635,10 @@
     }
     
     // Send player position to server (for player 0 only - local player)
-    if (socketConnected && p.id === 0) {
+    if (socket && socket.connected && p.id === 0) {
       // Send every few frames to reduce network traffic
       if (Math.random() < 0.1) {
-        sendPlayerAction('move', {
+        socket.emit('player-update', {
           position: { 
             x: p.x, 
             y: p.y,
@@ -888,17 +1681,20 @@
         if (circleCollide(p.x,p.y,p.r, t.x,t.y,t.r)){
           p.score++;
           updateScoreUI();
+          
+          // Send treat collection to server (for player 0 only - local player)
+          if (socket && socket.connected && p.id === 0) {
+            socket.emit('player-action', {
+              action: 'collect-treat',
+              treatId: t.id,
+              score: p.score
+            });
+          }
+          
           treats.splice(i,1);
           
           // Create particle effect when collecting treats
           createMeowParticles(t.x, t.y, "#5dffea");
-          
-          // Send score update to server (for player 0 only - local player)
-          if (socketConnected && p.id === 0) {
-            sendPlayerAction('score', {
-              score: p.score
-            });
-          }
           
           if (p.score >= CONFIG.targetScore && !winner){
             endGameWithWinner(p);
@@ -922,8 +1718,9 @@
     updateStatus(`🎉 ${p.emoji} ${p.name} WINS! Press R to restart.`);
     
     // Send game end to server
-    if (socketConnected && p.id === 0) {
-      sendPlayerAction('game-end', {
+    if (socket && socket.connected && p.id === 0) {
+      socket.emit('player-action', {
+        action: 'game-end',
         winner: p.name
       });
     }
@@ -1028,6 +1825,7 @@
                 // Spawn lost treats
                 for (let i = 0; i < lostTreats; i++) {
                   const t = { 
+                    id: Math.random().toString(36).substring(2, 15),
                     x: doge.x + rnd(-40, 40),
                     y: doge.y + rnd(-40, 40),
                     r: CONFIG.treatRadius, 
@@ -1233,8 +2031,9 @@
           updateStatus(`${player.name} got ${p.type.name}!`);
           
           // Send powerup collection to server (for player 0 only - local player)
-          if (socketConnected && player.id === 0) {
-            sendPlayerAction('powerup', {
+          if (socket && socket.connected && player.id === 0) {
+            socket.emit('player-action', {
+              action: 'powerup',
               type: p.type.name
             });
           }
@@ -1306,8 +2105,9 @@
       for (let i = 0; i < 3; i++) spawnTreat();
       
       // Send chaos mode activation to server
-      if (socketConnected) {
-        sendPlayerAction('chaos', {
+      if (socket && socket.connected) {
+        socket.emit('player-action', {
+          action: 'chaos',
           active: true
         });
       }
@@ -1418,7 +2218,7 @@
       ctx.fill();
       ctx.restore();
       
-            // Power-up circle
+      // Power-up circle
       drawCircle(p.x, p.y, p.r+pulseSize, '#2b2f3a', p.type.color);
       
       // Power-up emoji
@@ -1510,8 +2310,8 @@
     }
     
     // Remote players (if we want to render them differently)
-    for (const id in remotePlayersMap) {
-      const remotePlayer = remotePlayersMap[id];
+    for (const id in remotePlayers) {
+      const remotePlayer = remotePlayers[id];
       if (remotePlayer.position) {
         ctx.save();
         ctx.globalAlpha = 0.6;
@@ -1541,30 +2341,6 @@
     }
   }
 
-  // ======== SOCKET.IO HELPER FUNCTIONS ========
-  
-  // Create a representation of a remote player when they join
-  function createRemotePlayer(playerId, initialData) {
-    if (!remotePlayersMap[playerId]) {
-      remotePlayersMap[playerId] = {
-        id: playerId,
-        isRemote: true,
-        position: initialData?.position || null,
-        lastUpdate: performance.now(),
-        score: initialData?.score || 0
-      };
-      console.log(`Remote player ${playerId} added to game`);
-    }
-  }
-  
-  // Handle player leaving
-  socket.on('player-left', (playerId) => {
-    if (remotePlayersMap[playerId]) {
-      delete remotePlayersMap[playerId];
-      console.log(`Remote player ${playerId} left the game`);
-    }
-  });
-
   // ======== BOOT ========
   // Preload all cat GIF images
   function preloadCatImages() {
@@ -1576,6 +2352,9 @@
   
   // Start preloading images
   preloadCatImages();
+  
+  // Initialize multiplayer when page loads
+  document.addEventListener('DOMContentLoaded', initializeMultiplayer);
   
   // Show start screen, wait for Enter/click
   // (Game starts via start())
