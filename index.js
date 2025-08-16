@@ -101,6 +101,7 @@ io.on('connection', (socket) => {
       gameState: 'waiting', // waiting, playing, ended
       host: socket.id,
       lastGameStateUpdate: Date.now(),
+      lastActivity: Date.now(),
       settings: {
         targetScore: 30,
         maxPlayers: 2, // Enforced 2-player limit
@@ -159,6 +160,9 @@ io.on('connection', (socket) => {
       return;
     }
     
+    // Update last activity time
+    rooms[roomCode].lastActivity = Date.now();
+    
     // Join the room
     socket.join(roomCode);
     socket.roomCode = roomCode;
@@ -200,6 +204,9 @@ io.on('connection', (socket) => {
     // Only host can start
     if (socket.id !== rooms[roomCode].host) return;
     
+    // Update last activity time
+    rooms[roomCode].lastActivity = Date.now();
+    
     // Generate initial game state (treats, roombas, etc.)
     const gameState = generateInitialGameState(rooms[roomCode].settings);
     rooms[roomCode].gameState = 'playing';
@@ -215,6 +222,21 @@ io.on('connection', (socket) => {
       countdown: 30
     };
     
+    // Set initial player positions
+    let index = 0;
+    for (const id in rooms[roomCode].players) {
+      rooms[roomCode].players[id].position = {
+        x: rooms[roomCode].settings.canvasWidth * (0.2 + 0.3 * index),
+        y: rooms[roomCode].settings.canvasHeight * (0.3 + 0.1 * index),
+        vx: 0,
+        vy: 0
+      };
+      index++;
+    }
+    
+    // Add players to the game state
+    gameState.players = rooms[roomCode].players;
+    
     // Start game loop for this room
     startGameLoop(roomCode);
     
@@ -228,6 +250,9 @@ io.on('connection', (socket) => {
   socket.on('player-update', (data) => {
     const roomCode = socket.roomCode;
     if (!roomCode || !rooms[roomCode]) return;
+    
+    // Update last activity time
+    rooms[roomCode].lastActivity = Date.now();
     
     // Update player data in room
     if (rooms[roomCode].players[socket.id]) {
@@ -253,6 +278,9 @@ io.on('connection', (socket) => {
   socket.on('player-action', (data) => {
     const roomCode = socket.roomCode;
     if (!roomCode || !rooms[roomCode]) return;
+    
+    // Update last activity time
+    rooms[roomCode].lastActivity = Date.now();
     
     // Add player ID to the data
     const actionData = {
@@ -287,6 +315,23 @@ io.on('connection', (socket) => {
         if (data.powerUpId && rooms[roomCode].powerUps) {
           rooms[roomCode].powerUps = rooms[roomCode].powerUps.filter(p => p.id !== data.powerUpId);
           
+          // Store power-up type on player
+          if (data.type && rooms[roomCode].players[socket.id]) {
+            if (!rooms[roomCode].players[socket.id].powerUps) {
+              rooms[roomCode].players[socket.id].powerUps = [];
+            }
+            rooms[roomCode].players[socket.id].powerUps.push(data.type);
+            
+            // Remove power-up after duration
+            setTimeout(() => {
+              if (rooms[roomCode] && rooms[roomCode].players[socket.id] && 
+                  rooms[roomCode].players[socket.id].powerUps) {
+                rooms[roomCode].players[socket.id].powerUps = 
+                  rooms[roomCode].players[socket.id].powerUps.filter(p => p !== data.type);
+              }
+            }, 10000); // Default 10 seconds
+          }
+          
           // Broadcast to other players
           socket.to(roomCode).emit('player-action', actionData);
         }
@@ -300,6 +345,11 @@ io.on('connection', (socket) => {
           
           // Broadcast to other players
           socket.to(roomCode).emit('player-action', actionData);
+          
+          // Clear game loop
+          if (rooms[roomCode].gameLoopIntervalId) {
+            clearInterval(rooms[roomCode].gameLoopIntervalId);
+          }
         }
         break;
     }
@@ -309,6 +359,9 @@ io.on('connection', (socket) => {
   socket.on('request-treat', () => {
     const roomCode = socket.roomCode;
     if (!roomCode || !rooms[roomCode] || rooms[roomCode].gameState !== 'playing') return;
+    
+    // Update last activity time
+    rooms[roomCode].lastActivity = Date.now();
     
     // Only spawn if below the limit
     if (rooms[roomCode].treats.length < 6) {
@@ -335,6 +388,11 @@ io.on('connection', (socket) => {
       
       // If room is empty, delete it
       if (Object.keys(rooms[roomCode].players).length === 0) {
+        // Clear game loop if running
+        if (rooms[roomCode].gameLoopIntervalId) {
+          clearInterval(rooms[roomCode].gameLoopIntervalId);
+        }
+        
         delete rooms[roomCode];
         console.log(`Room ${roomCode} deleted (empty)`);
       }
@@ -475,7 +533,7 @@ function startGameLoop(roomCode) {
   // Only start if room exists and is in playing state
   if (!rooms[roomCode] || rooms[roomCode].gameState !== 'playing') return;
   
-  // Set up interval for game updates - 20 updates per second
+  // Set up interval for game updates - 30 updates per second (increased from 20)
   const intervalId = setInterval(() => {
     // Check if room still exists
     if (!rooms[roomCode] || rooms[roomCode].gameState !== 'playing') {
@@ -498,7 +556,7 @@ function startGameLoop(roomCode) {
     
     io.to(roomCode).emit('game-state-update', gameState);
     
-  }, 50); // 50ms = 20 updates per second
+  }, 33); // 33ms = ~30 updates per second (increased from 50ms)
   
   // Store interval ID to be able to clear it later
   rooms[roomCode].gameLoopIntervalId = intervalId;
@@ -514,11 +572,14 @@ function updateGameState(roomCode) {
   const width = settings.canvasWidth;
   const height = settings.canvasHeight;
   
+  // Speed multiplier to compensate for lower update rate vs client
+  const SPEED_MULTIPLIER = 3.0;
+  
   // Update treats
   room.treats.forEach(treat => {
     if (treat.vx !== 0 || treat.vy !== 0) {
-      treat.x += treat.vx;
-      treat.y += treat.vy;
+      treat.x += treat.vx * SPEED_MULTIPLIER;
+      treat.y += treat.vy * SPEED_MULTIPLIER;
       treat.vx *= 0.95;
       treat.vy *= 0.95;
       
@@ -542,19 +603,43 @@ function updateGameState(roomCode) {
     room.treats.push(treat);
   }
   
-  // Update roombas
+  // Update roombas with speed multiplier
   room.roombas.forEach(roomba => {
-    roomba.x += roomba.vx;
-    roomba.y += roomba.vy;
+    roomba.x += roomba.vx * SPEED_MULTIPLIER;
+    roomba.y += roomba.vy * SPEED_MULTIPLIER;
     
     // Bounce off edges
     if (roomba.x < 40 || roomba.x > width - 40) roomba.vx *= -1;
     if (roomba.y < 70 || roomba.y > height - 40) roomba.vy *= -1;
+    
+    // Check for collisions with players
+    for (const id in room.players) {
+      const player = room.players[id];
+      if (!player.position) continue;
+      
+      const playerR = 25; // Player radius
+      const roombaR = 18; // Roomba radius
+      const dx = player.position.x - roomba.x;
+      const dy = player.position.y - roomba.y;
+      const d = Math.hypot(dx, dy);
+      
+      if (d <= playerR + roombaR) { // Player radius + roomba radius
+        // Calculate push direction
+        const nx = dx/d, ny = dy/d;
+        
+        // Send roomba collision event to the specific player
+        io.to(id).emit('roomba-hit', {
+          roombaId: roomba.id,
+          forceX: nx * 1.8,
+          forceY: ny * 1.8
+        });
+      }
+    }
   });
   
-  // Update lasers
+  // Update lasers with speed multiplier
   room.lasers.forEach(laser => {
-    laser.t += 1;
+    laser.t += 3; // Increase by 3 to match 60FPS timing
     
     // Retarget sometimes (different timing for each laser)
     if (laser.t % 120 === 0) {
@@ -565,11 +650,36 @@ function updateGameState(roomCode) {
     const dx = laser.targetX - laser.x;
     const dy = laser.targetY - laser.y;
     const d = Math.hypot(dx, dy) || 1;
-    laser.x += (dx/d) * laser.speed;
-    laser.y += (dy/d) * laser.speed;
+    laser.x += (dx/d) * laser.speed * SPEED_MULTIPLIER;
+    laser.y += (dy/d) * laser.speed * SPEED_MULTIPLIER;
+    
+    // Check for collisions with players
+    for (const id in room.players) {
+      const player = room.players[id];
+      if (!player.position) continue;
+      
+      const playerR = 25; // Player radius
+      const laserR = 10; // Laser radius
+      const dx = player.position.x - laser.x;
+      const dy = player.position.y - laser.y;
+      const d = Math.hypot(dx, dy);
+      
+      if (d <= playerR + laserR + 6) { // Player radius + laser effect radius
+        // Check if player has shield (from powerups data)
+        const hasShield = player.powerUps && player.powerUps.includes('Shield');
+        
+        if (!hasShield) {
+          // Send laser hit event to specific player
+          io.to(id).emit('laser-hit', {
+            laserId: laser.id,
+            invertUntil: Date.now() + 2000 // 2 seconds
+          });
+        }
+      }
+    }
   });
   
-  // Update doge
+  // Update doge with speed multiplier
   if (!room.doge && now >= room.nextDogeAt) {
     room.nextDogeAt = now + CONFIG.dogeEveryMs;
     room.doge = generateDoge(settings);
@@ -589,6 +699,7 @@ function updateGameState(roomCode) {
       // Find closest player
       let closestDist = Infinity;
       let closestPlayer = null;
+      let closestId = null;
       
       for (const id in room.players) {
         const player = room.players[id];
@@ -601,6 +712,7 @@ function updateGameState(roomCode) {
         if (d < closestDist) {
           closestDist = d;
           closestPlayer = player;
+          closestId = id;
         }
       }
       
@@ -624,11 +736,12 @@ function updateGameState(roomCode) {
           if (!player.position) continue;
           
           const playerR = 25; // Player radius
+          const dogeR = 26; // Doge radius
           const dx = player.position.x - room.doge.x;
           const dy = player.position.y - room.doge.y;
           const d = Math.hypot(dx, dy);
           
-          if (d <= playerR + 26) { // Player radius + doge radius
+          if (d <= playerR + dogeR) { // Player radius + doge radius
             // Start eating player
             room.doge.eating = player.id;
             room.doge.eatingStartTime = now;
@@ -637,20 +750,45 @@ function updateGameState(roomCode) {
             room.doge.respawnX = Math.random() * (width - 200) + 100;
             room.doge.respawnY = Math.random() * (height - 200) + 100;
             
+            // Send doge-eat event to player
+            io.to(id).emit('doge-eat', {
+              eatenUntil: now + CONFIG.dogeEatTimeMs,
+              respawnX: room.doge.respawnX,
+              respawnY: room.doge.respawnY
+            });
+            
+            // Secret sauce: player loses treats when eaten
+            if (room.secretSauce.active && player.score > 0) {
+              const lostTreats = Math.min(player.score, 3);
+              player.score = Math.max(0, player.score - lostTreats);
+              
+              // Spawn lost treats
+              for (let i = 0; i < lostTreats; i++) {
+                const t = { 
+                  id: Math.random().toString(36).substring(2, 15),
+                  x: room.doge.x + (Math.random() * 80 - 40),
+                  y: room.doge.y + (Math.random() * 80 - 40),
+                  vx: (Math.random() * 4 - 2),
+                  vy: (Math.random() * 4 - 2)
+                };
+                room.treats.push(t);
+              }
+            }
+            
             break;
           }
         }
       }
     }
     
-    // Update doge position if not eating
+    // Update doge position with speed multiplier
     if (!room.doge.eating) {
-      room.doge.x += room.doge.vx;
-      room.doge.y += room.doge.vy;
+      room.doge.x += room.doge.vx * SPEED_MULTIPLIER;
+      room.doge.y += room.doge.vy * SPEED_MULTIPLIER;
     }
     
-    // Update TTL
-    room.doge.ttl -= 50; // 50ms per update
+    // Update TTL (keep the same rate)
+    room.doge.ttl -= 50;
     
     // Despawn if TTL expired or out of bounds
     if (room.doge.ttl <= 0 || room.doge.x < -80 || room.doge.x > width + 80 || 
@@ -660,7 +798,7 @@ function updateGameState(roomCode) {
   }
   
   // Update power-ups
-  if (Math.random() < CONFIG.powerUpChance && room.powerUps.length < CONFIG.maxPowerUps) {
+  if (Math.random() < CONFIG.powerUpChance * 3 && room.powerUps.length < CONFIG.maxPowerUps) {
     room.powerUps.push(generatePowerUp(settings));
   }
   
@@ -701,6 +839,9 @@ function updateGameState(roomCode) {
       room.nextSecretSauce = now + CONFIG.secretSauceInterval;
     }
   }
+  
+  // Update room activity timestamp
+  room.lastGameStateUpdate = now;
 }
 
 // Create self-ping to prevent Render from sleeping
