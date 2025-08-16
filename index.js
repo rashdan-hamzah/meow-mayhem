@@ -67,7 +67,7 @@ io.on('connection', (socket) => {
 const keepAlive = () => {
   setInterval(() => {
     console.log("Pinging self to prevent sleep...");
-    fetch(`https://YOUR-APP-NAME.onrender.com/ping`)
+    fetch(`https://meow-mayhem-server.onrender.com/ping`)
       .catch(err => console.error("Failed to ping self:", err));
   }, 840000); // 14 minutes
 };
