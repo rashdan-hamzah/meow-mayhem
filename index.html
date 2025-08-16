@@ -61,6 +61,8 @@
     border-radius: 50%;
   }
 </style>
+<!-- Socket.io client library -->
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 </head>
 <body>
 <canvas id="game"></canvas>
@@ -117,6 +119,81 @@
     secretSauceInterval: 30000, // Chaos mode every 30 seconds
     secretSauceDuration: 8000, // How long chaos mode lasts (8 seconds)
   };
+
+  // ======== SOCKET.IO MULTIPLAYER ========
+  const socket = io('https://meow-mayhem-server.onrender.com');
+  let socketConnected = false;
+  let remotePlayersMap = {}; // To store remote players by their server-assigned ID
+
+  socket.on('connect', () => {
+    console.log('Connected to game server!');
+    socketConnected = true;
+    
+    // Join a game room when connected
+    socket.emit('join-game', 'room-1');
+    
+    updateStatus('Connected to multiplayer server!');
+  });
+
+  socket.on('disconnect', () => {
+    console.log('Disconnected from game server');
+    socketConnected = false;
+    updateStatus('Disconnected from server');
+  });
+
+  // Handle other players joining
+  socket.on('player-joined', (playerId) => {
+    console.log(`Player ${playerId} joined the game`);
+    // Store remote player ID for later use
+    if (!remotePlayersMap[playerId]) {
+      remotePlayersMap[playerId] = {
+        id: playerId,
+        isRemote: true
+      };
+    }
+  });
+
+  // Handle remote player actions
+  socket.on('player-action', (data) => {
+    // Handle remote player movements and actions
+    if (data.action === 'move') {
+      handleRemotePlayerMove(data);
+    } else if (data.action === 'meow') {
+      handleRemotePlayerMeow(data);
+    }
+  });
+
+  // Handle remote player movement
+  function handleRemotePlayerMove(data) {
+    // Get position data from remote player
+    const remotePlayerData = data.position;
+    
+    // Find or create a representation for this remote player
+    // You would implement this based on how you want to show remote players
+    console.log('Remote player moved:', data);
+    
+    // For now, just log it - full implementation would update player positions
+  }
+
+  // Handle remote player meow action
+  function handleRemotePlayerMeow(data) {
+    // Get meow data from remote player
+    console.log('Remote player meowed:', data);
+    
+    // You could create a meow effect at the remote player's position
+    // For now, just log it - full implementation would show the meow effect
+  }
+
+  // Function to send our player actions to the server
+  function sendPlayerAction(actionType, actionData) {
+    if (!socketConnected) return;
+    
+    socket.emit('player-action', {
+      roomId: 'room-1',
+      action: actionType,
+      ...actionData
+    });
+  }
 
   // Cat GIFs for the players
   const CAT_GIFS = [
@@ -633,6 +710,16 @@
       const range = p.superMeow ? CONFIG.meowKnockRange * 1.5 : CONFIG.meowKnockRange;
       const force = p.superMeow ? CONFIG.meowKnockForce * 1.5 : CONFIG.meowKnockForce;
       
+      // Send meow action to server (for player 0 only - local player)
+      if (socketConnected && p.id === 0) {
+        sendPlayerAction('meow', {
+          position: { x: p.x, y: p.y },
+          range: range,
+          force: force,
+          superMeow: p.superMeow
+        });
+      }
+      
       meowBursts.push({ 
         x: p.x, 
         y: p.y, 
@@ -753,6 +840,21 @@
         }
       }
     }
+    
+    // Send player position to server (for player 0 only - local player)
+    if (socketConnected && p.id === 0) {
+      // Send every few frames to reduce network traffic
+      if (Math.random() < 0.1) {
+        sendPlayerAction('move', {
+          position: { 
+            x: p.x, 
+            y: p.y,
+            vx: p.vx,
+            vy: p.vy
+          }
+        });
+      }
+    }
   }
 
   function updateTreats(){
@@ -791,6 +893,13 @@
           // Create particle effect when collecting treats
           createMeowParticles(t.x, t.y, "#5dffea");
           
+          // Send score update to server (for player 0 only - local player)
+          if (socketConnected && p.id === 0) {
+            sendPlayerAction('score', {
+              score: p.score
+            });
+          }
+          
           if (p.score >= CONFIG.targetScore && !winner){
             endGameWithWinner(p);
           }
@@ -811,6 +920,13 @@
     winner = p;
     paused = true;
     updateStatus(`🎉 ${p.emoji} ${p.name} WINS! Press R to restart.`);
+    
+    // Send game end to server
+    if (socketConnected && p.id === 0) {
+      sendPlayerAction('game-end', {
+        winner: p.name
+      });
+    }
   }
 
   function updateRoombas(){
@@ -1115,6 +1231,14 @@
           powerUps.splice(i, 1);
           
           updateStatus(`${player.name} got ${p.type.name}!`);
+          
+          // Send powerup collection to server (for player 0 only - local player)
+          if (socketConnected && player.id === 0) {
+            sendPlayerAction('powerup', {
+              type: p.type.name
+            });
+          }
+          
           break;
         }
       }
@@ -1180,6 +1304,13 @@
       for (let i = 0; i < 3; i++) spawnPowerUp();
       if (Math.random() < 0.5) spawnDoge();
       for (let i = 0; i < 3; i++) spawnTreat();
+      
+      // Send chaos mode activation to server
+      if (socketConnected) {
+        sendPlayerAction('chaos', {
+          active: true
+        });
+      }
     }
   }
 
@@ -1287,7 +1418,7 @@
       ctx.fill();
       ctx.restore();
       
-      // Power-up circle
+            // Power-up circle
       drawCircle(p.x, p.y, p.r+pulseSize, '#2b2f3a', p.type.color);
       
       // Power-up emoji
@@ -1377,6 +1508,21 @@
       drawCircle(p.x, p.y, p.r, p.color, null);
       ctx.restore();
     }
+    
+    // Remote players (if we want to render them differently)
+    for (const id in remotePlayersMap) {
+      const remotePlayer = remotePlayersMap[id];
+      if (remotePlayer.position) {
+        ctx.save();
+        ctx.globalAlpha = 0.6;
+        drawCircle(remotePlayer.position.x, remotePlayer.position.y, 25, '#8822ff', '#ffffff');
+        ctx.font = '16px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('👤', remotePlayer.position.x, remotePlayer.position.y);
+        ctx.restore();
+      }
+    }
 
     // Winner banner
     if (winner){
@@ -1394,6 +1540,30 @@
       ctx.restore();
     }
   }
+
+  // ======== SOCKET.IO HELPER FUNCTIONS ========
+  
+  // Create a representation of a remote player when they join
+  function createRemotePlayer(playerId, initialData) {
+    if (!remotePlayersMap[playerId]) {
+      remotePlayersMap[playerId] = {
+        id: playerId,
+        isRemote: true,
+        position: initialData?.position || null,
+        lastUpdate: performance.now(),
+        score: initialData?.score || 0
+      };
+      console.log(`Remote player ${playerId} added to game`);
+    }
+  }
+  
+  // Handle player leaving
+  socket.on('player-left', (playerId) => {
+    if (remotePlayersMap[playerId]) {
+      delete remotePlayersMap[playerId];
+      console.log(`Remote player ${playerId} left the game`);
+    }
+  });
 
   // ======== BOOT ========
   // Preload all cat GIF images
