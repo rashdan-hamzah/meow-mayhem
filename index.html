@@ -59,6 +59,7 @@
     height: 50px;
     object-fit: cover;
     border-radius: 50%;
+    transition: box-shadow 0.2s ease;
   }
   
   /* Multiplayer Lobby Styles */
@@ -481,6 +482,7 @@
     secretSauceInterval: 30000,
     secretSauceDuration: 8000,
     debugMode: true, // Enable debug overlay
+    interpolationFactor: 0.2, // Movement smoothing (0-1, higher = snappier)
   };
 
   // ======== SOCKET.IO MULTIPLAYER ========
@@ -494,6 +496,8 @@
   let lastReceivedPlayers = {}; // Keep track of the last state from the server
   let isMultiplayerGame = false; // Flag to check if we're in a multiplayer game
   let serverSyncEnabled = true; // Flag to enable/disable server synchronization
+  let lastReceivedState = null; // Store the last received game state from server
+  let lastStateTime = 0; // Timestamp of last received game state
 
   // Helper function to get consistent remote player IDs
   function getRemotePlayerId(socketId) {
@@ -742,6 +746,10 @@
     socket.on('game-state-update', (gameState) => {
       if (!isMultiplayerGame || !serverSyncEnabled) return;
       
+      // Store the received state and time
+      lastReceivedState = gameState;
+      lastStateTime = performance.now();
+      
       // Sync all game elements
       syncTreats(gameState.treats);
       syncDoge(gameState.doge);
@@ -753,6 +761,58 @@
       
       // Update debug info
       if (CONFIG.debugMode && Math.random() < 0.1) updateDebugInfo();
+    });
+    
+    // NEW: Direct game interactions from server
+    socket.on('laser-hit', (data) => {
+      if (players.length > 0) {
+        // Apply invert controls to local player
+        players[0].invertUntil = performance.now() + 2000; // 2 seconds
+        updateStatus(`${players[0].name} is distracted by the LASER!`);
+        
+        // Particle effect when hit by laser
+        const laser = lasers.find(l => l.id === data.laserId);
+        if (laser) {
+          createMeowParticles(laser.x, laser.y, "#ff3333");
+        }
+      }
+    });
+    
+    socket.on('roomba-hit', (data) => {
+      if (players.length > 0) {
+        // Apply force to local player
+        players[0].vx += data.forceX;
+        players[0].vy += data.forceY;
+        
+        // Small particles when hitting roomba
+        const roomba = roombas.find(r => r.id === data.roombaId);
+        if (roomba) {
+          createMeowParticles(
+            players[0].x - (data.forceX * players[0].r), 
+            players[0].y - (data.forceY * players[0].r), 
+            "#aaaaaa"
+          );
+        }
+      }
+    });
+    
+    socket.on('doge-eat', (data) => {
+      if (players.length > 0) {
+        // Mark player as being eaten
+        players[0].beingEaten = true;
+        players[0].eatenUntil = performance.now() + (data.eatenUntil - Date.now());
+        
+        // Set respawn point
+        players[0].respawnPoint = {
+          x: data.respawnX,
+          y: data.respawnY
+        };
+        
+        // Eating effect particles
+        createExplosion(players[0].x, players[0].y, "#ff6600", 25);
+        
+        updateStatus(`${players[0].name} was eaten by Doge!`);
+      }
     });
   }
   
@@ -775,14 +835,32 @@
     serverTreats.forEach(serverTreat => {
       const localTreat = treats.find(t => t.id === serverTreat.id);
       if (localTreat) {
-        // Update existing treat
-        localTreat.x = serverTreat.x;
-        localTreat.y = serverTreat.y;
+        // Update existing treat with interpolation targets
+        localTreat.targetX = serverTreat.x;
+        localTreat.targetY = serverTreat.y;
         localTreat.vx = serverTreat.vx || 0;
         localTreat.vy = serverTreat.vy || 0;
+        
+        // If the difference is large, snap directly
+        if (Math.abs(localTreat.x - serverTreat.x) > 50 || 
+            Math.abs(localTreat.y - serverTreat.y) > 50) {
+          localTreat.x = serverTreat.x;
+          localTreat.y = serverTreat.y;
+        }
       } else {
         // Add new treat
-        spawnTreatFromData(serverTreat);
+        const newTreat = { 
+          id: serverTreat.id,
+          x: serverTreat.x,
+          y: serverTreat.y,
+          targetX: serverTreat.x,
+          targetY: serverTreat.y,
+          r: CONFIG.treatRadius, 
+          emoji:'🐟',
+          vx: serverTreat.vx || 0,
+          vy: serverTreat.vy || 0
+        };
+        treats.push(newTreat);
       }
     });
   }
@@ -800,6 +878,8 @@
       doge = {
         x: serverDoge.x,
         y: serverDoge.y,
+        targetX: serverDoge.x,
+        targetY: serverDoge.y,
         r: 26,
         vx: serverDoge.vx,
         vy: serverDoge.vy,
@@ -809,12 +889,19 @@
         eatingStartTime: 0
       };
     } else {
-      // Update existing doge
-      doge.x = serverDoge.x;
-      doge.y = serverDoge.y;
+      // Update existing doge with interpolation targets
+      doge.targetX = serverDoge.x;
+      doge.targetY = serverDoge.y;
       doge.vx = serverDoge.vx;
       doge.vy = serverDoge.vy;
       doge.ttl = serverDoge.ttl;
+      
+      // If the difference is large, snap directly
+      if (Math.abs(doge.x - serverDoge.x) > 50 || 
+          Math.abs(doge.y - serverDoge.y) > 50) {
+        doge.x = serverDoge.x;
+        doge.y = serverDoge.y;
+      }
       
       // Handle eating state
       if (serverDoge.eating) {
@@ -828,19 +915,17 @@
           }
         } 
         // If eating local player
-        else if (players.length > 0) {
+        else if (players.length > 0 && !players[0].beingEaten) {
           doge.eating = players[0];
           
           // Set local player to eaten state if not already
-          if (!players[0].beingEaten) {
-            players[0].beingEaten = true;
-            players[0].eatenUntil = performance.now() + CONFIG.dogeEatTimeMs;
-            players[0].respawnPoint = {
-              x: serverDoge.respawnX || rnd(100, W-100),
-              y: serverDoge.respawnY || rnd(100, H-100)
-            };
-            createExplosion(players[0].x, players[0].y, "#ff6600", 25);
-          }
+          players[0].beingEaten = true;
+          players[0].eatenUntil = performance.now() + CONFIG.dogeEatTimeMs;
+          players[0].respawnPoint = {
+            x: serverDoge.respawnX || rnd(100, W-100),
+            y: serverDoge.respawnY || rnd(100, H-100)
+          };
+          createExplosion(players[0].x, players[0].y, "#ff6600", 25);
         }
       } else {
         doge.eating = null;
@@ -853,19 +938,44 @@
     if (!serverRoombas) return;
     
     // Remove roombas that aren't in the server list
-    roombas.length = 0;
+    for (let i = roombas.length - 1; i >= 0; i--) {
+      const localRoomba = roombas[i];
+      const serverRoomba = serverRoombas.find(r => r.id === localRoomba.id);
+      if (!serverRoomba) {
+        roombas.splice(i, 1);
+      }
+    }
     
-    // Add all server roombas
-    serverRoombas.forEach(r => {
-      roombas.push({
-        id: r.id,
-        x: r.x,
-        y: r.y,
-        r: 18,
-        vx: r.vx,
-        vy: r.vy,
-        emoji: '🧹'
-      });
+    // Update or add roombas from server
+    serverRoombas.forEach(serverRoomba => {
+      const localRoomba = roombas.find(r => r.id === serverRoomba.id);
+      if (localRoomba) {
+        // Update with interpolation targets
+        localRoomba.targetX = serverRoomba.x;
+        localRoomba.targetY = serverRoomba.y;
+        localRoomba.vx = serverRoomba.vx;
+        localRoomba.vy = serverRoomba.vy;
+        
+        // If the difference is large, snap directly
+        if (Math.abs(localRoomba.x - serverRoomba.x) > 50 || 
+            Math.abs(localRoomba.y - serverRoomba.y) > 50) {
+          localRoomba.x = serverRoomba.x;
+          localRoomba.y = serverRoomba.y;
+        }
+      } else {
+        // Add new roomba
+        roombas.push({
+          id: serverRoomba.id,
+          x: serverRoomba.x,
+          y: serverRoomba.y,
+          targetX: serverRoomba.x,
+          targetY: serverRoomba.y,
+          r: 18,
+          vx: serverRoomba.vx,
+          vy: serverRoomba.vy,
+          emoji:'🧹',
+        });
+      }
     });
   }
   
@@ -873,21 +983,49 @@
   function syncLasers(serverLasers) {
     if (!serverLasers) return;
     
-    // Reset lasers array
-    lasers.length = 0;
+    // Remove lasers that aren't in the server list
+    for (let i = lasers.length - 1; i >= 0; i--) {
+      const localLaser = lasers[i];
+      const serverLaser = serverLasers.find(l => l.id === localLaser.id);
+      if (!serverLaser) {
+        lasers.splice(i, 1);
+      }
+    }
     
-    // Add all server lasers
-    serverLasers.forEach(l => {
-      lasers.push({
-        x: l.x,
-        y: l.y,
-        r: 10,
-        emoji: '🔴',
-        t: l.t || 0,
-        targetX: l.targetX,
-        targetY: l.targetY,
-        speed: l.speed || 3.5
-      });
+    // Update or add lasers from server
+    serverLasers.forEach(serverLaser => {
+      const localLaser = lasers.find(l => l.id === serverLaser.id);
+      if (localLaser) {
+        // Update with interpolation targets
+        localLaser.targetX = serverLaser.x;
+        localLaser.targetY = serverLaser.y;
+        localLaser.t = serverLaser.t || 0;
+        localLaser.laserTargetX = serverLaser.targetX;
+        localLaser.laserTargetY = serverLaser.targetY;
+        localLaser.speed = serverLaser.speed || 3.5;
+        
+        // If the difference is large, snap directly
+        if (Math.abs(localLaser.x - serverLaser.x) > 50 || 
+            Math.abs(localLaser.y - serverLaser.y) > 50) {
+          localLaser.x = serverLaser.x;
+          localLaser.y = serverLaser.y;
+        }
+      } else {
+        // Add new laser
+        lasers.push({
+          id: serverLaser.id,
+          x: serverLaser.x,
+          y: serverLaser.y,
+          targetX: serverLaser.x,
+          targetY: serverLaser.y,
+          r: 10,
+          emoji: '🔴',
+          t: serverLaser.t || 0,
+          laserTargetX: serverLaser.targetX,
+          laserTargetY: serverLaser.targetY,
+          speed: serverLaser.speed || 3.5
+        });
+      }
     });
   }
   
@@ -943,6 +1081,8 @@
           id: serverPowerUp.id,
           x: serverPowerUp.x,
           y: serverPowerUp.y,
+          targetX: serverPowerUp.x,
+          targetY: serverPowerUp.y,
           r: 15,
           type: powerUpType,
           emoji: powerUpType.emoji,
@@ -951,9 +1091,16 @@
           pulsePhase: 0
         });
       } else {
-        // Update existing power-up
-        localPowerUp.x = serverPowerUp.x;
-        localPowerUp.y = serverPowerUp.y;
+        // Update existing power-up with interpolation targets
+        localPowerUp.targetX = serverPowerUp.x;
+        localPowerUp.targetY = serverPowerUp.y;
+        
+        // If the difference is large, snap directly
+        if (Math.abs(localPowerUp.x - serverPowerUp.x) > 50 || 
+            Math.abs(localPowerUp.y - serverPowerUp.y) > 50) {
+          localPowerUp.x = serverPowerUp.x;
+          localPowerUp.y = serverPowerUp.y;
+        }
       }
     });
   }
@@ -977,6 +1124,49 @@
     
     // Update countdown
     secretSauceCountdown = serverSecretSauce.countdown || 30;
+  }
+  
+  // Perform interpolation updates
+  function updateInterpolation() {
+    const factor = CONFIG.interpolationFactor;
+    
+    // Interpolate treat positions
+    for (const t of treats) {
+      if (t.targetX !== undefined && t.targetY !== undefined) {
+        t.x += (t.targetX - t.x) * factor;
+        t.y += (t.targetY - t.y) * factor;
+      }
+    }
+    
+    // Interpolate roomba positions
+    for (const r of roombas) {
+      if (r.targetX !== undefined && r.targetY !== undefined) {
+        r.x += (r.targetX - r.x) * factor;
+        r.y += (r.targetY - r.y) * factor;
+      }
+    }
+    
+    // Interpolate laser positions
+    for (const l of lasers) {
+      if (l.targetX !== undefined && l.targetY !== undefined) {
+        l.x += (l.targetX - l.x) * factor;
+        l.y += (l.targetY - l.y) * factor;
+      }
+    }
+    
+    // Interpolate doge position
+    if (doge && doge.targetX !== undefined && doge.targetY !== undefined && !doge.eating) {
+      doge.x += (doge.targetX - doge.x) * factor;
+      doge.y += (doge.targetY - doge.y) * factor;
+    }
+    
+    // Interpolate power-up positions
+    for (const p of powerUps) {
+      if (p.targetX !== undefined && p.targetY !== undefined) {
+        p.x += (p.targetX - p.x) * factor;
+        p.y += (p.targetY - p.y) * factor;
+      }
+    }
   }
   
   // Request treat from server instead of spawning locally
@@ -1193,6 +1383,7 @@
     info += `Room Code: ${roomCode}<br>`;
     info += `Screen: ${currentScreen}<br>`;
     info += `Multiplayer: ${isMultiplayerGame ? 'Yes' : 'No'}<br>`;
+    info += `Last State: ${lastStateTime ? Math.round(performance.now() - lastStateTime) + 'ms ago' : 'None'}<br>`;
     info += `Local Players: ${players.length}<br>`;
     info += `Remote Players: ${Object.keys(remotePlayers).length}<br>`;
     
@@ -1369,6 +1560,7 @@
     // Enable multiplayer sync
     isMultiplayerGame = true;
     serverSyncEnabled = true;
+    lastStateTime = performance.now();
     
     // Update debug info
     if (CONFIG.debugMode) updateDebugInfo();
@@ -1379,6 +1571,8 @@
       id: treatData.id || Math.random().toString(36).substring(2, 15),
       x: treatData.x,
       y: treatData.y,
+      targetX: treatData.x,
+      targetY: treatData.y,
       r: CONFIG.treatRadius, 
       emoji:'🐟',
       vx: treatData.vx || 0,
@@ -1392,6 +1586,8 @@
       id: roombaData.id || Math.random().toString(36).substring(2, 15),
       x: roombaData.x,
       y: roombaData.y,
+      targetX: roombaData.x,
+      targetY: roombaData.y,
       r: 18,
       vx: roombaData.vx,
       vy: roombaData.vy,
@@ -1421,6 +1617,8 @@
         socketId: data.id, // Store original socket ID
         x: data.position ? data.position.x : W/2,
         y: data.position ? data.position.y : H/2,
+        targetX: data.position ? data.position.x : W/2,
+        targetY: data.position ? data.position.y : H/2,
         vx: data.position ? data.position.vx : 0,
         vy: data.position ? data.position.vy : 0,
         score: data.score || 0,
@@ -1435,8 +1633,8 @@
     } else {
       // Update existing player
       if (data.position) {
-        remotePlayers[id].x = data.position.x;
-        remotePlayers[id].y = data.position.y;
+        remotePlayers[id].targetX = data.position.x;
+        remotePlayers[id].targetY = data.position.y;
         remotePlayers[id].vx = data.position.vx || remotePlayers[id].vx;
         remotePlayers[id].vy = data.position.vy || remotePlayers[id].vy;
       }
@@ -1494,6 +1692,24 @@
     }
   }
 
+  // Update remote player positions with interpolation
+  function updateRemotePlayerPositions() {
+    for (const id in remotePlayers) {
+      const player = remotePlayers[id];
+      if (player.targetX !== undefined && player.targetY !== undefined) {
+        // Interpolate position
+        player.x += (player.targetX - player.x) * CONFIG.interpolationFactor;
+        player.y += (player.targetY - player.y) * CONFIG.interpolationFactor;
+        
+        // Update visual
+        if (player.imgElement) {
+          player.imgElement.style.left = `${player.x}px`;
+          player.imgElement.style.top = `${player.y}px`;
+        }
+      }
+    }
+  }
+
   function handleRemotePlayerAction(data) {
     if (!data.id || !data.action) return;
     
@@ -1537,6 +1753,7 @@
         if (data.winner) {
           showNotification(`🎉 ${data.winner} wins!`);
           paused = true;
+          winner = {name: data.winner, emoji: '🏆'};
         }
         break;
     }
@@ -1656,7 +1873,7 @@
         updateStatus("");
       }
     },
-        { name: "Tornado", onStart: () => {
+    { name: "Tornado", onStart: () => {
         spawnTornado();
         updateStatus("🌪️ Tornado Alert - Run for cover!");
       }, onEnd: () => {
@@ -1786,15 +2003,6 @@
           }
         }
       });
-      
-      // Update remote players
-      for (const id in remotePlayers) {
-        const player = remotePlayers[id];
-        if (player && player.imgElement) {
-          player.imgElement.style.left = `${player.x}px`;
-          player.imgElement.style.top = `${player.y}px`;
-        }
-      }
     } catch (error) {
       console.error('Error updating cat positions:', error);
     }
@@ -2826,8 +3034,16 @@
     updatePowerUpsUI();
     updateCatImagePositions();
     
+    // Update remote player positions with interpolation
+    updateRemotePlayerPositions();
+    
     // DEBUGGING: Update debug info occasionally
     if (CONFIG.debugMode && Math.random() < 0.05) updateDebugInfo();
+    
+    // In multiplayer, perform game element interpolation
+    if (isMultiplayerGame) {
+      updateInterpolation();
+    }
 
     while (acc >= dt){
       if (!paused && !winner){
