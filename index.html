@@ -317,6 +317,21 @@
     100% { opacity: 0; transform: translateY(-20px); }
   }
 
+  /* Debug overlay */
+  #debugOverlay {
+    position: fixed;
+    bottom: 10px;
+    right: 10px;
+    background: rgba(0,0,0,0.7);
+    padding: 10px;
+    color: white;
+    font-family: monospace;
+    font-size: 12px;
+    z-index: 1000;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
   /* Mobile Responsive Adjustments */
   @media (max-width: 800px) {
     .join-create {
@@ -465,6 +480,7 @@
     weatherCooldown: 5000,
     secretSauceInterval: 30000,
     secretSauceDuration: 8000,
+    debugMode: true, // Enable debug overlay
   };
 
   // ======== SOCKET.IO MULTIPLAYER ========
@@ -475,9 +491,16 @@
   let remotePlayers = {};
   let currentScreen = 'lobby'; // 'lobby', 'waiting', 'game'
   let hostId = '';
+  let lastReceivedPlayers = {}; // Keep track of the last state from the server
+
+  // Helper function to get consistent remote player IDs
+  function getRemotePlayerId(socketId) {
+    return 'remote-' + socketId;
+  }
 
   // Initialize Socket.io and UI events
   function initializeMultiplayer() {
+    console.log("Initializing multiplayer");
     socket = io('https://meow-mayhem-server.onrender.com');
     
     // Setup event listeners
@@ -489,12 +512,20 @@
     
     // Create notification area
     createNotificationArea();
+    
+    // Create debug overlay if needed
+    if (CONFIG.debugMode) {
+      createDebugOverlay();
+    }
   }
 
   function setupSocketEvents() {
     // Connection events
     socket.on('connect', () => {
       console.log('Connected to game server!');
+      
+      // Update debug info
+      if (CONFIG.debugMode) updateDebugInfo();
     });
     
     socket.on('disconnect', () => {
@@ -511,6 +542,7 @@
     
     // Room creation and joining
     socket.on('room-created', (data) => {
+      console.log('Room created:', data);
       roomCode = data.roomCode;
       playerId = data.playerId;
       isHost = true;
@@ -522,22 +554,32 @@
       document.getElementById('waitingMessage').style.display = 'none';
       
       // Update players list
+      const playerName = localStorage.getItem('playerName') || 'Host Cat';
+      const skinIndex = parseInt(localStorage.getItem('selectedSkinIndex') || '0');
+      
       updatePlayersList([{
         id: playerId,
-        name: document.getElementById('hostPlayerName').value,
-        skinIndex: parseInt(document.querySelector('#lobbyScreen .create-game .cat-selection .selected').dataset.index)
+        name: playerName,
+        skinIndex: skinIndex
       }]);
       
       // Show waiting room
       showScreen('waitingRoom');
       currentScreen = 'waiting';
+      
+      // Update debug info
+      if (CONFIG.debugMode) updateDebugInfo();
     });
     
     socket.on('room-joined', (data) => {
+      console.log('Room joined:', data);
       roomCode = data.roomCode;
       playerId = data.playerId;
       isHost = data.isHost;
       hostId = data.players ? Object.keys(data.players).find(id => data.players[id].isHost) : '';
+      
+      // Store the last received players state
+      lastReceivedPlayers = data.players || {};
       
       // Update UI
       document.getElementById('roomCodeDisplay').textContent = roomCode;
@@ -545,12 +587,15 @@
       document.getElementById('waitingMessage').style.display = isHost ? 'none' : 'block';
       
       // Update players list with all existing players
-      const playersList = Object.values(data.players);
+      const playersList = Object.values(data.players || {});
       updatePlayersList(playersList);
       
       // Show waiting room
       showScreen('waitingRoom');
       currentScreen = 'waiting';
+      
+      // Update debug info
+      if (CONFIG.debugMode) updateDebugInfo();
     });
     
     socket.on('join-error', (data) => {
@@ -559,30 +604,65 @@
     
     // Player events
     socket.on('player-joined', (data) => {
+      console.log('Player joined:', data);
+      
+      // Add to last received players
+      if (data.id) {
+        lastReceivedPlayers[data.id] = data;
+      }
+      
       // Add player to list
       addPlayerToList(data);
       
       // Show notification
       showNotification(`${data.name} joined the game!`);
+      
+      // Update debug info
+      if (CONFIG.debugMode) updateDebugInfo();
     });
     
-    socket.on('player-left', (playerId) => {
-      // Remove player from list
-      removePlayerFromList(playerId);
+    socket.on('player-left', (disconnectedPlayerId) => {
+      console.log('Player left:', disconnectedPlayerId);
       
-      // Remove from remote players if in game
-      if (currentScreen === 'game' && remotePlayers[playerId]) {
-        // Remove player's visual representation
-        if (remotePlayers[playerId].imgElement) {
-          remotePlayers[playerId].imgElement.remove();
-        }
-        delete remotePlayers[playerId];
-        
-        showNotification('A player left the game');
+      // Remove from last received players
+      if (disconnectedPlayerId && lastReceivedPlayers[disconnectedPlayerId]) {
+        delete lastReceivedPlayers[disconnectedPlayerId];
       }
+      
+      // Remove player from waiting room list
+      removePlayerFromList(disconnectedPlayerId);
+      
+      // CRITICAL FIX: Properly clean up remote player if in game
+      if (currentScreen === 'game') {
+        const remoteId = getRemotePlayerId(disconnectedPlayerId);
+        
+        if (remotePlayers[remoteId]) {
+          console.log(`Removing remote player: ${remoteId}`);
+          
+          // Remove player's visual representation
+          if (remotePlayers[remoteId].imgElement) {
+            remotePlayers[remoteId].imgElement.remove();
+          }
+          
+          // Remove score display
+          const scoreEl = document.getElementById(`score-${remoteId}`);
+          if (scoreEl && scoreEl.parentNode) {
+            scoreEl.parentNode.removeChild(scoreEl);
+          }
+          
+          // Remove from remote players object
+          delete remotePlayers[remoteId];
+          
+          showNotification('A player left the game');
+        }
+      }
+      
+      // Update debug info
+      if (CONFIG.debugMode) updateDebugInfo();
     });
     
     socket.on('new-host', (newHostId) => {
+      console.log('New host:', newHostId);
       hostId = newHostId;
       isHost = (newHostId === playerId);
       
@@ -597,25 +677,54 @@
       
       // Update the host crown in the player list
       updateHostDisplay(newHostId);
+      
+      // Update debug info
+      if (CONFIG.debugMode) updateDebugInfo();
     });
     
     // Game events
     socket.on('game-started', (gameState) => {
+      console.log('Game started with state:', gameState);
+      
+      // CRITICAL FIX: Force hide all screens first
+      document.querySelectorAll('.screen').forEach(screen => {
+        screen.style.display = 'none';
+      });
+      
+      // CRITICAL FIX: Force hide the center UI element (start screen)
+      document.getElementById('center').style.display = 'none';
+      
+      // Show game canvas and UI
+      document.getElementById('game').style.display = 'block';
+      document.getElementById('ui').style.display = 'block';
+      document.getElementById('timer').style.display = 'block';
+      
       // Initialize game with received state
       initializeGameWithState(gameState);
       
-      // Show game screen and hide waiting room
-      showScreen('game');
-      
+      currentScreen = 'game';
       showNotification('Game started!');
+      
+      // Update debug info
+      if (CONFIG.debugMode) updateDebugInfo();
     });
     
     socket.on('player-updated', (data) => {
+      // Skip updates about our own player to prevent duplication
+      if (data.id === playerId) {
+        return;
+      }
+      
       // Update remote player position and state
       updateRemotePlayer(data);
     });
     
     socket.on('player-action', (data) => {
+      // Skip actions from our own player
+      if (data.id === playerId) {
+        return;
+      }
+      
       // Handle remote player actions
       handleRemotePlayerAction(data);
     });
@@ -637,7 +746,14 @@
       
       const skinIndex = parseInt(document.querySelector('#lobbyScreen .create-game .cat-selection .selected').dataset.index);
       
-      socket.emit('create-room');
+      // CRITICAL FIX: Store selected skin and name for later use
+      localStorage.setItem('selectedSkinIndex', skinIndex);
+      localStorage.setItem('playerName', playerName);
+      
+      socket.emit('create-room', {
+        playerName: playerName,
+        skinIndex: skinIndex
+      });
     });
     
     // Join game button
@@ -656,6 +772,10 @@
       }
       
       const skinIndex = parseInt(document.querySelector('#lobbyScreen .join-game .cat-selection .selected').dataset.index);
+      
+      // CRITICAL FIX: Store selected skin and name for later use
+      localStorage.setItem('selectedSkinIndex', skinIndex);
+      localStorage.setItem('playerName', playerName);
       
       socket.emit('join-room', {
         roomCode: roomCodeValue,
@@ -687,19 +807,21 @@
 
   // Helper UI functions - FIXED VERSION
   function showScreen(screenId) {
+    console.log(`Showing screen: ${screenId}`);
+    
     // Hide all screens first
     document.querySelectorAll('.screen').forEach(screen => {
       screen.style.display = 'none';
     });
     
-    // Hide or show game elements based on which screen we're viewing
+    // CRITICAL FIX: Extra handling for game screen
     if (screenId === 'game') {
-      // Show game elements, hide center (start screen)
-      document.getElementById('game').style.display = 'block';
-      document.getElementById('ui').style.display = 'block';
+      // Hide start screen overlay
       document.getElementById('center').style.display = 'none';
       
-      // Make sure other game UI is properly configured
+      // Show game elements
+      document.getElementById('game').style.display = 'block';
+      document.getElementById('ui').style.display = 'block';
       document.getElementById('timer').style.display = 'block';
       
       currentScreen = 'game';
@@ -707,11 +829,16 @@
       // Hide game elements when in lobby/waiting room
       document.getElementById('game').style.display = 'none';
       document.getElementById('ui').style.display = 'none';
+      document.getElementById('timer').style.display = 'none';
+      document.getElementById('center').style.display = 'none';
       
       // Show the requested screen
       document.getElementById(screenId).style.display = 'block';
       currentScreen = screenId;
     }
+    
+    // Update debug info
+    if (CONFIG.debugMode) updateDebugInfo();
   }
 
   function updatePlayersList(players) {
@@ -762,6 +889,10 @@
   }
 
   function createNotificationArea() {
+    // Remove existing notification area if it exists
+    const existingArea = document.getElementById('notificationArea');
+    if (existingArea) existingArea.remove();
+    
     const notificationArea = document.createElement('div');
     notificationArea.id = 'notificationArea';
     document.body.appendChild(notificationArea);
@@ -780,30 +911,116 @@
     
     // Remove after animation completes
     setTimeout(() => {
-      notification.remove();
+      if (notification.parentNode) {
+        notification.parentNode.removeChild(notification);
+      }
     }, 3000);
+  }
+  
+  // Add debug overlay to help track player entities
+  function createDebugOverlay() {
+    if (document.getElementById('debugOverlay')) {
+      return document.getElementById('debugOverlay');
+    }
+    
+    const overlay = document.createElement('div');
+    overlay.id = 'debugOverlay';
+    document.body.appendChild(overlay);
+    
+    return overlay;
+  }
+
+  // Update debug info
+  function updateDebugInfo() {
+    if (!CONFIG.debugMode) return;
+    
+    const overlay = createDebugOverlay();
+    if (!overlay) return;
+    
+    let info = `Local Player ID: ${playerId}<br>`;
+    info += `Host ID: ${hostId}<br>`;
+    info += `Room Code: ${roomCode}<br>`;
+    info += `Screen: ${currentScreen}<br>`;
+    info += `Local Players: ${players.length}<br>`;
+    info += `Remote Players: ${Object.keys(remotePlayers).length}<br>`;
+    
+    // List all remote players
+    if (Object.keys(remotePlayers).length > 0) {
+      info += '<br>Remote Players:<br>';
+      for (const id in remotePlayers) {
+        info += `- ${id}: ${remotePlayers[id].x.toFixed(0)},${remotePlayers[id].y.toFixed(0)}<br>`;
+      }
+    }
+    
+    overlay.innerHTML = info;
   }
 
   // Game integration functions - FIXED VERSION
   function initializeGameWithState(gameState) {
+    console.log('Initializing game with state', gameState);
+    
     // Reset game state completely
     resetGame();
     
-    // Ensure only 2 players
-    while (players.length > CONFIG.maxPlayers) {
-      const lastPlayer = players.pop();
-      if (lastPlayer.imgElement) {
-        lastPlayer.imgElement.remove();
-      }
+    // CRITICAL FIX: Start with exactly one local player
+    // First clean up any existing player images
+    while (catImagesContainer.firstChild) {
+      catImagesContainer.removeChild(catImagesContainer.firstChild);
     }
+    
+    // Clear all players
+    players.length = 0;
     
     // Clear all remote players to prevent duplicates
     for (const id in remotePlayers) {
       if (remotePlayers[id].imgElement) {
         remotePlayers[id].imgElement.remove();
       }
+      
+      // Also remove score elements
+      const scoreEl = document.getElementById(`score-${id}`);
+      if (scoreEl && scoreEl.parentNode) {
+        scoreEl.parentNode.removeChild(scoreEl);
+      }
     }
     remotePlayers = {};
+    
+    // Create ONE local player (player 0)
+    console.log("Creating local player with ID 0");
+    const playerSkinIndex = parseInt(localStorage.getItem('selectedSkinIndex') || '0');
+    const playerName = localStorage.getItem('playerName') || 'Player';
+    const skin = SKINS[playerSkinIndex % SKINS.length];
+    const p = {
+      id: 0, // Local player always has ID 0
+      name: playerName,
+      emoji: skin.emoji,
+      color: skin.color,
+      chip: skin.chip,
+      skin: skin,
+      x: W * 0.2,
+      y: H * 0.3,
+      vx: 0, vy: 0,
+      r: CONFIG.playerRadius,
+      score: 0,
+      controls: CONTROL_SETS[0],
+      invertUntil: 0,
+      lastMeow: -9999,
+      alive: true,
+      isBeingMeowed: false,
+      meowEffectUntil: 0,
+      speedBoost: 1.0,
+      hasShield: false,
+      superMeow: false,
+      treatMagnet: false,
+      activePowerUps: [],
+      beingEaten: false,
+      eatenUntil: 0,
+      respawnPoint: { x: 0, y: 0 }
+    };
+    
+    // Create cat image element
+    p.imgElement = createCatImage(p);
+    players.push(p);
     
     // Add treats from server data
     treats.length = 0;
@@ -824,16 +1041,35 @@
     // Setup game world
     if (CONFIG.laserActive) spawnLasers();
     
+    // CRITICAL FIX: Force hide the center screen
+    document.getElementById('center').style.display = 'none';
+    
     // Update the UI
     updateScoreUI();
-    
-    // Make sure the center UI is hidden
-    document.getElementById('center').style.display = 'none';
     
     // Start game loop
     running = true;
     last = performance.now();
     requestAnimationFrame(loop);
+    
+    // Create other players as remote players
+    if (gameState && gameState.players) {
+      // Create remote players for everyone except ourselves
+      for (const id in gameState.players) {
+        if (id === playerId) continue; // Skip our own player
+        
+        const playerData = gameState.players[id];
+        updateRemotePlayer({
+          id: id,
+          position: playerData.position || { x: W/2, y: H/2 },
+          skinIndex: playerData.skinIndex || 0,
+          score: playerData.score || 0
+        });
+      }
+    }
+    
+    // Update debug info
+    if (CONFIG.debugMode) updateDebugInfo();
   }
 
   function spawnTreatFromData(treatData) {
@@ -862,14 +1098,25 @@
     roombas.push(r);
   }
 
-  // Update remote player
+  // Update remote player - FIXED VERSION
   function updateRemotePlayer(data) {
-    const id = data.id;
+    if (!data.id) return;
+    
+    // CRITICAL FIX: Use consistent ID format to avoid duplicates
+    const id = getRemotePlayerId(data.id);
+    
+    // Check if this is a player we should be tracking
+    if (data.id === playerId) {
+      console.log('Ignoring update for our own player');
+      return; // Don't create a remote version of our own player
+    }
     
     // Create remote player if doesn't exist
     if (!remotePlayers[id]) {
+      console.log(`Creating new remote player: ${id}`);
       remotePlayers[id] = {
         id: id,
+        socketId: data.id, // Store original socket ID
         x: data.position ? data.position.x : W/2,
         y: data.position ? data.position.y : H/2,
         vx: data.position ? data.position.vx : 0,
@@ -915,24 +1162,46 @@
     const span = document.createElement('span');
     span.className = `pchip p${(player.skinIndex % 5) + 1}`;
     span.id = `score-${player.id}`;
-    span.textContent = `${SKINS[player.skinIndex].emoji} Remote: ${player.score}`;
+    
+    // Use data from lastReceivedPlayers if available
+    let playerName = "Remote";
+    if (player.socketId && lastReceivedPlayers[player.socketId]) {
+      playerName = lastReceivedPlayers[player.socketId].name || "Remote";
+    }
+    
+    span.textContent = `${SKINS[player.skinIndex].emoji} ${playerName}: ${player.score}`;
     scoresEl.appendChild(span);
+    
+    // Update debug info
+    if (CONFIG.debugMode) updateDebugInfo();
   }
 
   function updateRemotePlayerScore(id, score) {
     const scoreEl = document.getElementById(`score-${id}`);
     if (scoreEl && remotePlayers[id]) {
       const skinIndex = remotePlayers[id].skinIndex || 0;
-      scoreEl.textContent = `${SKINS[skinIndex].emoji} Remote: ${score}`;
+      
+      // Use data from lastReceivedPlayers if available
+      let playerName = "Remote";
+      if (remotePlayers[id].socketId && lastReceivedPlayers[remotePlayers[id].socketId]) {
+        playerName = lastReceivedPlayers[remotePlayers[id].socketId].name || "Remote";
+      }
+      
+      scoreEl.textContent = `${SKINS[skinIndex].emoji} ${playerName}: ${score}`;
     }
   }
 
   function handleRemotePlayerAction(data) {
     if (!data.id || !data.action) return;
     
+    // Skip actions from our own player
+    if (data.id === playerId) return;
+    
+    const remoteId = getRemotePlayerId(data.id);
+    
     switch (data.action) {
       case 'meow':
-        createRemoteMeowEffect(data);
+        createRemoteMeowEffect(data, remoteId);
         break;
         
       case 'collect-treat':
@@ -942,11 +1211,19 @@
             treats.splice(i, 1);
             
             // Visual effect for remote collection
-            createMeowParticles(
-              remotePlayers[data.id] ? remotePlayers[data.id].x : W/2,
-              remotePlayers[data.id] ? remotePlayers[data.id].y : H/2,
-              "#5dffea"
-            );
+            if (remotePlayers[remoteId]) {
+              createMeowParticles(
+                remotePlayers[remoteId].x,
+                remotePlayers[remoteId].y,
+                "#5dffea"
+              );
+              
+              // Update remote player score
+              if (data.score !== undefined) {
+                remotePlayers[remoteId].score = data.score;
+                updateRemotePlayerScore(remoteId, data.score);
+              }
+            }
             break;
           }
         }
@@ -954,8 +1231,8 @@
     }
   }
 
-  function createRemoteMeowEffect(data) {
-    const player = remotePlayers[data.id];
+  function createRemoteMeowEffect(data, remoteId) {
+    const player = remotePlayers[remoteId];
     if (!player) return;
     
     const now = performance.now();
@@ -1108,7 +1385,11 @@
 
   // ======== INPUT ========
   const keys = new Set();
-  window.addEventListener('keydown', (e) => { keys.add(e.key); if (e.key === 'Enter') start(); if ([' '].includes(e.key)) e.preventDefault(); });
+  window.addEventListener('keydown', (e) => { 
+    keys.add(e.key); 
+    if (e.key === 'Enter') start(); 
+    if ([' '].includes(e.key)) e.preventDefault(); 
+  });
   window.addEventListener('keyup', (e) => keys.delete(e.key));
 
   // ======== UTIL ========
@@ -1168,41 +1449,47 @@
     }
   }
   
-  // Update cat image position
+  // Update cat image position with improved error handling
   function updateCatImagePositions() {
-    players.forEach(p => {
-      if (p.imgElement) {
-        p.imgElement.style.left = `${p.x}px`;
-        p.imgElement.style.top = `${p.y}px`;
-        
-        // Apply eating animation class if being eaten
-        if (p.beingEaten) {
-          p.imgElement.classList.add('eating');
-        } else {
-          p.imgElement.classList.remove('eating');
+    try {
+      // Update local players
+      players.forEach(p => {
+        if (p && p.imgElement) {
+          p.imgElement.style.left = `${p.x}px`;
+          p.imgElement.style.top = `${p.y}px`;
+          
+          // Apply eating animation class if being eaten
+          if (p.beingEaten) {
+            p.imgElement.classList.add('eating');
+          } else {
+            p.imgElement.classList.remove('eating');
+          }
+          
+          // Apply shield visual effect
+          if (p.hasShield) {
+            p.imgElement.style.boxShadow = '0 0 10px 5px rgba(0, 255, 255, 0.7)';
+          } else if (p.isBeingMeowed) {
+            p.imgElement.style.boxShadow = '0 0 8px 4px rgba(255, 255, 255, 0.6)';
+          } else {
+            p.imgElement.style.boxShadow = 'none';
+          }
         }
-        
-        // Apply shield visual effect
-        if (p.hasShield) {
-          p.imgElement.style.boxShadow = '0 0 10px 5px rgba(0, 255, 255, 0.7)';
-        } else if (p.isBeingMeowed) {
-          p.imgElement.style.boxShadow = '0 0 8px 4px rgba(255, 255, 255, 0.6)';
-        } else {
-          p.imgElement.style.boxShadow = 'none';
+      });
+      
+      // Update remote players
+      for (const id in remotePlayers) {
+        const player = remotePlayers[id];
+        if (player && player.imgElement) {
+          player.imgElement.style.left = `${player.x}px`;
+          player.imgElement.style.top = `${player.y}px`;
         }
       }
-    });
-    
-    // Update remote players
-    for (const id in remotePlayers) {
-      const player = remotePlayers[id];
-      if (player.imgElement) {
-        player.imgElement.style.left = `${player.x}px`;
-        player.imgElement.style.top = `${player.y}px`;
-      }
+    } catch (error) {
+      console.error('Error updating cat positions:', error);
     }
   }
 
+  // CRITICAL FIX: Only spawn exactly one player in multiplayer mode
   function spawnPlayers(n=CONFIG.maxPlayers){
     // First clean up any existing player images
     while (catImagesContainer.firstChild) {
@@ -1210,6 +1497,13 @@
     }
     
     players.length = 0;
+    
+    // CRITICAL FIX: In multiplayer mode, only create one player (the local player)
+    if (currentScreen === 'game' && socket && socket.connected) {
+      // Create just one local player in multiplayer mode
+      n = 1;
+    }
+    
     for(let i=0;i<n;i++){
       const skin = SKINS[i % SKINS.length];
       const p = {
@@ -1327,7 +1621,7 @@
     // Create tornado particles
     for (let i = 0; i < 30; i++) {
       tornado.particles.push({
-        x: tornado.x + rnd(-tornado.r, tornado.r),
+                x: tornado.x + rnd(-tornado.r, tornado.r),
         y: tornado.y + rnd(-tornado.r, tornado.r),
         size: rnd(4, 10),
         angle: rnd(0, Math.PI * 2),
@@ -1514,7 +1808,7 @@
     // Skip input handling if player is being eaten
     if (p.beingEaten) return;
     
-    // Skip if not the local player
+    // Skip if not local player (player 0)
     if (p.id !== 0) return;
     
     const now = performance.now();
@@ -1576,7 +1870,7 @@
           other.vx += nx * adjustedForce;
           other.vy += ny * adjustedForce;
           
-                    // Mark player as being meowed for visual effects
+          // Mark player as being meowed for visual effects
           other.isBeingMeowed = true;
           other.meowEffectUntil = now + 800;
           
@@ -2161,6 +2455,9 @@
     // Update UI elements that don't depend on physics tick
     updatePowerUpsUI();
     updateCatImagePositions();
+    
+    // DEBUGGING: Add this to help track issues
+    if (CONFIG.debugMode && Math.random() < 0.05) updateDebugInfo(); // Update debug info occasionally
 
     while (acc >= dt){
       if (!paused && !winner){
@@ -2342,21 +2639,6 @@
       ctx.globalAlpha = p.opacity;
       drawCircle(p.x, p.y, p.r, p.color, null);
       ctx.restore();
-    }
-    
-    // Remote players (if we want to render them differently)
-    for (const id in remotePlayers) {
-      const remotePlayer = remotePlayers[id];
-      if (remotePlayer.position) {
-        ctx.save();
-        ctx.globalAlpha = 0.6;
-        drawCircle(remotePlayer.position.x, remotePlayer.position.y, 25, '#8822ff', '#ffffff');
-        ctx.font = '16px system-ui';
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText('👤', remotePlayer.position.x, remotePlayer.position.y);
-        ctx.restore();
-      }
     }
 
     // Winner banner
